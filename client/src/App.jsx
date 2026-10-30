@@ -273,8 +273,7 @@ export default function App() {
 
   const version = health?.version ? <span className="version">v{health.version}</span> : null;
 
-  return (
-    <div className="app">
+  const topBar = (
       <header className="top">
         <div>
           <h1>Exam Studio {version}</h1>
@@ -283,8 +282,8 @@ export default function App() {
         <div className="topright">
           {health?.demo
             ? <span className="pill warn" title="DEMO_MODE=1: sample output, no AI calls">Demo mode: sample output only</span>
-            : health?.provider && <span className="pill">AI: {health.provider} ({health.model})</span>}
-          <button className="link theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
+            : health?.provider && <span className="pill" title={health.model ? `${health.provider} - ${health.model}` : health.provider}>{health.provider}{health.model ? ` - ${health.model}` : ''}</span>}
+          <button className="link theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? '☀' : '☾'}</button>
           {user && (
             <div className="userbox">
               <span className="who" title={user.email}>{user.name || user.email}</span>
@@ -295,12 +294,18 @@ export default function App() {
           )}
         </div>
       </header>
+  );
+
+  return (
+    <div className={user ? 'app app-shell' : 'app'}>
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {checking && <p className="empty">Loading…</p>}
 
       {/* ---------------------------------------------------------- sign in / register */}
+      {!checking && !user && topBar}
+
       {!checking && !user && (
         <div className="auth-container">
           <form className="auth-box" onSubmit={handleAuth} noValidate>
@@ -384,6 +389,18 @@ export default function App() {
       {/* ---------------------------------------------------------- the app */}
       {!checking && user && (
         <>
+          <aside className="sidebar" aria-label="Main navigation">
+            <nav className="sidebar-nav">
+              {TABS.map(([k, label]) => (
+                <button type="button" key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
+              ))}
+              <button type="button" className="link" onClick={() => setShowSettings(true)}>Settings</button>
+              <button type="button" className="link" onClick={() => setShowAgents(true)}>Agents</button>
+            </nav>
+          </aside>
+
+          <div className="main">
+            {topBar}
           {error && <div className="banner error" role="alert">{error}</div>}
 
           {update?.updateAvailable && (
@@ -397,17 +414,7 @@ export default function App() {
             </div>
           )}
 
-          <aside className="sidebar" aria-label="Main navigation">
-            <nav className="sidebar-nav">
-              {TABS.map(([k, label]) => (
-                <button type="button" key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
-              ))}
-              <button type="button" className="link" onClick={() => setShowSettings(true)}>Settings</button>
-              <button type="button" className="link" onClick={() => setShowAgents(true)}>Agents</button>
-            </nav>
-          </aside>
-
-          <div className="layout">
+            <div className="layout">
             <aside className="panel source">
               <h2>1. Your notes</h2>
               <label className="field">
@@ -572,6 +579,7 @@ export default function App() {
                 }} />
               )}
             </main>
+          </div>
           </div>
         </>
       )}
