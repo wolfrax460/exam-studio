@@ -1,0 +1,74 @@
+name: Release Exam Studio
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag, e.g. v0.2.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            command: npm run dist:win
+            asset_glob: "release/*.{exe,msi,zip}"
+          - os: ubuntu-latest
+            label: Linux
+            command: npm run dist:linux
+            asset_glob: "release/*.{AppImage,deb,rpm,zip}"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install root and project dependencies
+        run: |
+          npm install
+          npm run setup
+
+      - name: Run test suites
+        run: npm test
+
+      - name: Build web and server assets
+        run: npm run build
+
+      - name: Build desktop packages
+        run: ${{ matrix.command }}
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.electron
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: "Exam Studio ${{ github.event.inputs.tag_name || github.ref_name }}"
+          body_path: "RELEASE_NOTES.md"
+          files: ${{ matrix.asset_glob }}
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Wait release notes file fixed `RELEASE_NOTES.md`; but version release notes changing. Could keep current meaningful. We'll create `RELEASE_NOTES.md` generic for 0.2.1. Also workflow manually workflow_dispatch requires `tag_name` input. Tag push path release name uses ref. Good.
+
+But Windows build in GitHub Actions may fail due huge electron package but okay. `npm run dist:win` may invoke electron-builder. User wants "do it" not necessarily workflow-only. We'll likely still push and create release ourselves? Let's add scripts for manual publishing maybe using curl with a token in env. The skill/runbook ensures future. We'll commit.
+
+Create release notes.

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+server/data/
+.tmp/
+release/
+
+# Local data the app writes at runtime
+server/data/settings.json
+server/data/jwt-secret
+server/data/store.json
+*.log
+server/samples/

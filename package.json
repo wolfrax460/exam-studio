@@ -1,0 +1,103 @@
+{
+  "name": "exam-studio",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "Turn course notes into study handouts, notes, flashcards and exams.",
+  "author": "Exam Studio",
+  "main": "electron/main.js",
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -n api,web -c green,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server run start",
+    "demo": "concurrently -n api,web \"cross-env DEMO_MODE=1 npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "test": "npm --prefix server test && npm --prefix client test",
+    "mcp": "npm --prefix server run mcp",
+    "samples": "npm --prefix server run render-samples",
+    "desktop": "npm run build && electron .",
+    "desktop:pack": "npm run build && electron-builder --dir -c.electronDist=node_modules/electron/dist",
+    "dist": "npm run build && electron-builder -c.electronDist=node_modules/electron/dist",
+    "dist:win": "npm run build && electron-builder --win -c.electronDist=node_modules/electron/dist",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:linux:zip": "npm run build && electron-builder --linux zip"
+  },
+  "build": {
+    "appId": "com.examstudio.app",
+    "productName": "Exam Studio",
+    "copyright": "Copyright \u00a9 2026 Exam Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "shared/**/*",
+      "version.json",
+      "server/**/*",
+      "!server/data/**",
+      "!server/samples/**",
+      "!server/test/**",
+      "!server/scripts/**",
+      "!**/*.log"
+    ],
+    "asarUnpack": [
+      "server/**/*",
+      "shared/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Exam Studio",
+      "artifactName": "Exam-Studio-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Exam-Studio-${version}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.education",
+      "icon": "build/icon.png",
+      "artifactName": "Exam-Studio-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Education",
+      "icon": "build/icon.png",
+      "artifactName": "Exam-Studio-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
+  }
+}
