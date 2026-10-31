@@ -3,6 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import crypto from 'node:crypto';
+import User from './lib/models/User.js';
 import helmet from 'helmet';
 import cors from 'cors';
 import multer from 'multer';
@@ -24,6 +26,7 @@ import { updateSettings, getSettings } from './lib/settings.js';
 import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js';
 import * as admin from './lib/adminStore.js';
 import { verifyPatToken } from './lib/adminStore.js';
+import * as mailer from './lib/mailer.js';
 import { requireAdmin } from './lib/auth.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
@@ -260,14 +263,16 @@ app.post('/api/auth/register', registerLimit, wrap(async (req, res) => {
   if (existing) throw httpError(409, 'An account with this email already exists. Sign in instead.');
 
   const passwordHash = await hashPassword(password);
+  const verificationToken = crypto.randomBytes(32).toString('hex');
+  const emailVerificationTokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
   let user;
   try {
-    user = await createUser({ email, name, passwordHash });
+    user = await createUser({ email, name, passwordHash, emailVerified: false, emailVerificationTokenHash, emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   } catch (error) {
-    // Two requests can pass the check above at the same time; the unique index catches it.
     if (isDuplicateKey(error)) throw httpError(409, 'An account with this email already exists. Sign in instead.');
     throw error;
   }
+  mailer.sendVerificationEmail({ email, name, token: verificationToken }).catch(() => {});
   res.status(201).json({ token: generateToken(user), user: publicUser(user) });
 }));
 
@@ -300,6 +305,50 @@ app.get('/api/auth/me', optionalAuthenticateUser, wrap(async (req, res) => {
   res.json({ user: req.user ? publicUser(req.user) : null });
 }));
 
+app.get('/api/auth/verify-email', wrap(async (req, res) => {
+  const token = String(req.query?.token || '');
+  if (!token) throw httpError(400, 'Verification token is required.');
+  User = User;
+  const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  const user = await User.findOne({ emailVerificationTokenHash: hashed, emailVerificationExpires: { $gt: new Date() } });
+  if (!user) throw httpError(400, 'Verification link is invalid or expired.');
+  user.emailVerified = true;
+  user.emailVerificationTokenHash = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save();
+  res.json({ message: 'Email verified. You can now sign in.', user: publicUser(user) });
+}));
+
+app.post('/api/auth/forgot-password', wrap(async (req, res) => {
+  const email = normalizeEmail(text(req.body?.email, { field: 'Email', min: 3, max: 254 }));
+  const user = await User.findOne({ email });
+  if (user) {
+    const token = crypto.randomBytes(32).toString('hex');
+    user.passwordResetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+    mailer.sendPasswordResetEmail({ email, name: user.name, token }).catch(() => {});
+  }
+  // Always generic response to prevent account probing.
+  res.json({ message: 'If an account exists for that email, password reset instructions have been sent.' });
+}));
+
+app.post('/api/auth/reset-password', wrap(async (req, res) => {
+  const token = String(req.body?.token || '');
+  const password = req.body?.password;
+  if (!token) throw httpError(400, 'Reset token is required.');
+  if (typeof password !== 'string' || !password) throw httpError(400, 'A new password is required.');
+  const passwordProblem = validatePassword(password);
+  if (passwordProblem) throw httpError(400, passwordProblem);
+  const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  const user = await User.findOne({ passwordResetTokenHash: hashed, passwordResetExpires: { $gt: new Date() } });
+  if (!user) throw httpError(400, 'Reset link is invalid or expired.');
+  user.passwordHash = password;
+  user.passwordResetTokenHash = undefined;
+  user.passwordResetExpires = undefined;
+  await user.save();
+  res.json({ message: 'Password reset successfully. You can now sign in.' });
+}));
 const OPENAPI_SPEC = { openapi: '3.1.0', info: { title: 'Exam Studio API', version: '0.2.1' }, paths: { '/api/v1/public/plans': { get: { summary: 'List public plans' } } } };
 
 // ---------------------------------------------------------------- public API v1 (PAT or session)

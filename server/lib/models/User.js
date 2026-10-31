@@ -54,7 +54,11 @@ const userSchema = new mongoose.Schema({
   },
   totpSecret: { type: String },
   totpEnabled: { type: Boolean, default: false },
-  lastSignInAt: {
+  emailVerified: { type: Boolean, default: true },
+  emailVerificationTokenHash: { type: String },
+  emailVerificationExpires: { type: Date },
+  passwordResetTokenHash: { type: String },
+  passwordResetExpires: { type: Date },  lastSignInAt: {
     type: Date,
   },
   createdAt: {

@@ -9,6 +9,7 @@ import AITools from './components/AITools';
 import Desktop from './components/Desktop';
 import FAQ from './components/FAQ';
 import { Privacy, Terms, Refunds } from './components/Legal';
+import ResetPassword from './components/ResetPassword';
 import Contact from './components/Contact';
 import Changelog from './components/Changelog';
 import Footer from './components/Footer';
@@ -40,7 +41,7 @@ function ScrollChrome() {
   );
 }
 
-const ROUTES: Record<string, ComponentType> = {'/privacy': Privacy, '/terms': Terms, '/refunds': Refunds};
+const ROUTES: Record<string, ComponentType> = {'/privacy': Privacy, '/terms': Terms, '/refunds': Refunds, '/reset-password': ResetPassword};
 
 export default function App() {
   const path = (typeof window !== 'undefined' ? window.location.pathname.replace(/\/$/, '') : '') || '/';

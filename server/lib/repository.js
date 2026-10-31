@@ -140,11 +140,11 @@ export async function resolveOwnerId() {
 
 export const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
-export async function createUser({ email, name, passwordHash, role = 'student', planId = null, active = true, mustChangePassword = false }) {
+export async function createUser({ email, name, passwordHash, role = 'student', planId = null, active = true, mustChangePassword = false, emailVerified = true, emailVerificationTokenHash = null, emailVerificationExpires = null }) {
   await initStorage();
   const wanted = normalizeEmail(email);
   if (mode === 'mongo') {
-    const doc = await User.create({ email: wanted, name, passwordHash, role, planId, active, mustChangePassword });
+    const doc = await User.create({ email: wanted, name, passwordHash, role, planId, active, mustChangePassword, emailVerified, emailVerificationTokenHash, emailVerificationExpires });
     return { id: doc._id.toString(), email: doc.email, name: doc.name, role: doc.role, planId: doc.planId ? doc.planId.toString() : null, active: doc.active, mustChangePassword: doc.mustChangePassword, tokenVersion: doc.tokenVersion || 0 };
   }
   const store = readFileStore();
@@ -153,7 +153,7 @@ export async function createUser({ email, name, passwordHash, role = 'student', 
     duplicate.code = 11000;
     throw duplicate;
   }
-  const user = { id: newId(), email: wanted, name, passwordHash, role, planId, active, mustChangePassword, tokenVersion: 0, createdAt: nowIso() };
+  const user = { id: newId(), email: wanted, name, passwordHash, role, planId, active, mustChangePassword, tokenVersion: 0, emailVerified, emailVerificationTokenHash, emailVerificationExpires, createdAt: nowIso() };
   store.users.push(user);
   writeFileStore();
   return { id: user.id, email: user.email, name: user.name, role: user.role, planId: user.planId, active: user.active, mustChangePassword: user.mustChangePassword, tokenVersion: 0 };
