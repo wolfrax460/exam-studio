@@ -27,7 +27,7 @@ let file = null;          // { version, users: [], items: [] }
 let fileLoaded = false;
 
 // ---------------------------------------------------------------- file backend
-const emptyFile = () => ({ version: 1, users: [], items: [] });
+const emptyFile = () => ({ version: 2, users: [], items: [], plans: [], usageEvents: [], announcements: [], auditLog: [], settings: [], aiConfig: null });
 
 function readFileStore() {
   if (fileLoaded) return file;
@@ -40,9 +40,15 @@ function readFileStore() {
       file = { ...emptyFile(), items: raw.map((it) => ({ ...it, userId: it.userId || LOCAL_OWNER })) };
     } else if (raw && typeof raw === 'object') {
       file = {
-        version: 1,
+        version: 2,
         users: Array.isArray(raw.users) ? raw.users : [],
         items: Array.isArray(raw.items) ? raw.items : [],
+        plans: Array.isArray(raw.plans) ? raw.plans : [],
+        usageEvents: Array.isArray(raw.usageEvents) ? raw.usageEvents : [],
+        announcements: Array.isArray(raw.announcements) ? raw.announcements : [],
+        auditLog: Array.isArray(raw.auditLog) ? raw.auditLog : [],
+        settings: Array.isArray(raw.settings) ? raw.settings : [],
+        aiConfig: raw.aiConfig && typeof raw.aiConfig === 'object' ? raw.aiConfig : null,
       };
     } else {
       file = emptyFile();
@@ -133,26 +139,23 @@ export async function resolveOwnerId() {
 
 export const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
-export async function createUser({ email, name, passwordHash }) {
+export async function createUser({ email, name, passwordHash, role = 'student', planId = null, active = true, mustChangePassword = false }) {
   await initStorage();
   const wanted = normalizeEmail(email);
   if (mode === 'mongo') {
-    const doc = await User.create({ email: wanted, name, passwordHash });
-    return { id: doc._id.toString(), email: doc.email, name: doc.name };
+    const doc = await User.create({ email: wanted, name, passwordHash, role, planId, active, mustChangePassword });
+    return { id: doc._id.toString(), email: doc.email, name: doc.name, role: doc.role, planId: doc.planId ? doc.planId.toString() : null, active: doc.active, mustChangePassword: doc.mustChangePassword, tokenVersion: doc.tokenVersion || 0 };
   }
   const store = readFileStore();
-  // Two registrations can pass the "already exists" check at the same time (hashing is
-  // asynchronous); the check is repeated here, where the write happens, and reported the
-  // same way MongoDB reports it.
   if (store.users.some((user) => user.email === wanted)) {
     const duplicate = new Error('An account with this email already exists.');
     duplicate.code = 11000;
     throw duplicate;
   }
-  const user = { id: newId(), email: wanted, name, passwordHash, createdAt: nowIso() };
+  const user = { id: newId(), email: wanted, name, passwordHash, role, planId, active, mustChangePassword, tokenVersion: 0, createdAt: nowIso() };
   store.users.push(user);
   writeFileStore();
-  return { id: user.id, email: user.email, name: user.name };
+  return { id: user.id, email: user.email, name: user.name, role: user.role, planId: user.planId, active: user.active, mustChangePassword: user.mustChangePassword, tokenVersion: 0 };
 }
 
 export async function findUserByEmail(email) {
@@ -160,21 +163,51 @@ export async function findUserByEmail(email) {
   const wanted = normalizeEmail(email);
   if (mode === 'mongo') {
     // +passwordHash: the field is select:false on the schema.
-    const doc = await User.findOne({ email: wanted }).select('+passwordHash').lean();
-    return doc ? { id: doc._id.toString(), email: doc.email, name: doc.name, passwordHash: doc.passwordHash } : null;
+    const doc = await User.findOne({ email: wanted }).select('+passwordHash +totpSecret').lean();
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(), email: doc.email, name: doc.name, passwordHash: doc.passwordHash,
+      role: doc.role || 'student', planId: doc.planId ? doc.planId.toString() : null,
+      active: doc.active !== false, mustChangePassword: Boolean(doc.mustChangePassword),
+      tokenVersion: doc.tokenVersion || 0, lastSignInAt: doc.lastSignInAt,
+      overrides: doc.overrides || {},
+      totpSecret: doc.totpSecret || null, totpEnabled: Boolean(doc.totpEnabled),
+    };
   }
-  return readFileStore().users.find((u) => u.email === wanted) || null;
+  const u = readFileStore().users.find((u) => u.email === wanted);
+  if (!u) return null;
+  return {
+    id: u.id, email: u.email, name: u.name, passwordHash: u.passwordHash,
+    role: u.role || 'student', planId: u.planId || null, active: u.active !== false,
+    mustChangePassword: Boolean(u.mustChangePassword), tokenVersion: u.tokenVersion || 0, lastSignInAt: u.lastSignInAt,
+  };
 }
 
 export async function findUserById(id) {
   await initStorage();
   if (mode === 'mongo') {
     if (!mongoose.isValidObjectId(id)) return null;
-    const doc = await User.findById(id).select('email name').lean();
-    return doc ? { id: doc._id.toString(), email: doc.email, name: doc.name } : null;
+    const doc = await User.findById(id).select('email name role planId active mustChangePassword tokenVersion lastSignInAt overrides totpEnabled').lean();
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(), email: doc.email, name: doc.name,
+      role: doc.role || 'student', planId: doc.planId ? doc.planId.toString() : null,
+      active: doc.active !== false, mustChangePassword: Boolean(doc.mustChangePassword),
+      tokenVersion: doc.tokenVersion || 0, lastSignInAt: doc.lastSignInAt,
+      overrides: doc.overrides || {},
+      totpEnabled: Boolean(doc.totpEnabled),
+    };
   }
   const user = readFileStore().users.find((u) => u.id === id);
-  return user ? { id: user.id, email: user.email, name: user.name } : null;
+  if (!user) return null;
+  return {
+    id: user.id, email: user.email, name: user.name,
+    role: user.role || 'student', planId: user.planId || null,
+    active: user.active !== false, mustChangePassword: Boolean(user.mustChangePassword),
+    tokenVersion: user.tokenVersion || 0, lastSignInAt: user.lastSignInAt,
+    overrides: user.overrides || {},
+    totpEnabled: Boolean(user.totpEnabled),
+  };
 }
 
 // ---------------------------------------------------------------- library
@@ -236,6 +269,9 @@ export function _resetFileCache() {
   fileLoaded = false;
   mode = null;
 }
+
+export function getFileStore() { readFileStore(); return file; }
+export function saveFileStore() { if (mode === 'file') writeFileStore(); }
 
 export { User, LibraryItem };
 export default {

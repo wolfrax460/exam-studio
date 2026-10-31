@@ -12,12 +12,245 @@ import {
 import { demoExam, demoNotes, demoCards, demoHandout } from './demo.js';
 import { demoSectionsExam } from './demo-sections.js';
 import { callStructured, providerReady } from './engine.js';
+import * as admin from './adminStore.js';
 import { resolve } from './providers.js';
 
 export const DEMO = process.env.DEMO_MODE === '1';
 // A real RTB trainee's manual runs to about 480,000 characters, and a handout is planned from the
 // whole document. The cap can be lowered (or raised) from the environment.
 export const MAX_NOTES_CHARS = Number(process.env.MAX_NOTES_CHARS) || 600_000;
+
+/**
+ * Detect structure in notes text: modules, learning outcomes, units, sections.
+ * Returns detected tree with confidence level, or null if no structure found.
+ *
+ * Looks for:
+ - Headings: "Learning Outcome 1", "LO1", "Unit 1", "Indicative content 1.1"
+ - Numbered: "1.", "1.1", "1.1.1"
+ - Module/Chapter/Chapter title patterns
+ - Cleans repeated headers/footers before analysis
+ *
+ * @param {string} text - The notes text to analyze
+ * @param {string} [title] - Optional title from the notes
+ * @returns {object|null} Detected structure or null if none found
+ */
+export function detectStructure(text, title) {
+  if (!text || text.length < 50) return null;
+
+  // Clean: remove repeated headers/footers and page numbers
+  const cleaned = cleanTextForStructure(text);
+
+  const lines = cleaned.split(/\n\s*\n/);
+  const tree = { modules: [], confidence: 'Low' };
+  let highConfidenceCount = 0;
+
+  // Patterns we look for - improved regexes for common note formats
+  const patterns = {
+    // Learning Outcome patterns
+    lo: /learning\s+outcome\s+(\d+)/i,
+    lo_short: /^[LOo]*\s*(\d+)/i,
+    // Unit patterns
+    unit: /unit\s+(\d+)/i,
+    // Indicative content
+    indicative: /indicative\s+content\s+([\d.]+)/i,
+    // Module/Chapter title - more flexible, handles "Module: Title" or "Module Title"
+    module: /(?:^|[\s;])module\s*:?\s*([^\n]{3,80})/i,
+    chapter: /(?:^|[\s;])chapter\s*:?\s*([^\n]{3,80})/i,
+    // Numbered headings - improved to match 1., 1.1, 1.1.1
+    numbered: /^(\d+)(\.\d+)*\s*/m,
+    // Topic patterns
+    topic: /^[Tt]opic\s*:?\s*(.{3,60})/i,
+  };
+
+  // Scan each line for patterns
+  const findings = {
+    modules: new Map(), // title -> {lineIndex, confidence}
+    outcomes: new Map(), // LO number -> {lineIndex, confidence}
+    units: new Map(), // unit number -> {lineIndex, confidence}
+    sections: new Map(), // section number -> {lineIndex, confidence}
+  };
+
+  lines.forEach((line, idx) => {
+    // Check for module/chapter title
+    const modMatch = line.match(patterns.module);
+    if (modMatch && modMatch[1].trim().length >= 3) {
+      findings.modules.set(modMatch[1].trim().toLowerCase(), {
+        lineIndex: idx,
+        confidence: 'High',
+        text: modMatch[1].trim(),
+      });
+      highConfidenceCount++;
+    }
+
+    // Check for learning outcomes
+    const loMatch = line.match(patterns.lo) || line.match(patterns.lo_short);
+    if (loMatch) {
+      const loNum = loMatch[1];
+      if (!findings.outcomes.has(loNum)) {
+        findings.outcomes.set(loNum, {
+          lineIndex: idx,
+          confidence: 'High',
+          text: `Learning Outcome ${loNum}`,
+        });
+        highConfidenceCount++;
+      }
+    }
+
+    // Check for units
+    const unitMatch = line.match(patterns.unit);
+    if (unitMatch) {
+      const unitNum = unitMatch[1];
+      if (!findings.units.has(unitNum)) {
+        findings.units.set(unitNum, {
+          lineIndex: idx,
+          confidence: 'High',
+          text: `Unit ${unitNum}`,
+        });
+        highConfidenceCount++;
+      }
+    }
+
+    // Check for indicative content
+    const indMatch = line.match(patterns.indicative);
+    if (indMatch) {
+      const sectionNum = indMatch[1];
+      if (!findings.sections.has(sectionNum)) {
+        findings.sections.set(sectionNum, {
+          lineIndex: idx,
+          confidence: 'Medium',
+          text: `Indicative Content ${sectionNum}`,
+        });
+      }
+    }
+
+    // Check for numbered headings (1., 1.1, etc.)
+    const numMatch = line.match(patterns.numbered);
+    if (numMatch) {
+      const headingText = numMatch[0].trim();
+      // Classify by depth
+      const depth = (headingText.match(/^(\.?\d)+/) || [''])[0].split('.').length;
+      if (depth >= 1 && depth <= 3) {
+        const key = `${depth}-${headingText.toLowerCase().slice(0, 30)}`;
+        if (!findings.sections.has(key)) {
+          findings.sections.set(key, {
+            lineIndex: idx,
+            confidence: depth === 1 ? 'High' : 'Medium',
+            text: headingText,
+            depth,
+          });
+        }
+      }
+    }
+  });
+
+  // Build the tree structure
+  // 1. Add modules
+  for (const [key, info] of findings.modules) {
+    tree.modules.push({
+      title: info.text,
+      type: 'module',
+      confidence: info.confidence,
+      lineIndex: info.lineIndex,
+    });
+  }
+
+  // 2. Add learning outcomes and units
+  // Sort by line index to maintain order
+  const sortedOutcomes = [...findings.outcomes.values()].sort((a, b) => a.lineIndex - b.lineIndex);
+  const sortedUnits = [...findings.units.values()].sort((a, b) => a.lineIndex - b.lineIndex);
+  const sortedSections = [...findings.sections.values()].sort((a, b) => a.lineIndex - b.lineIndex);
+
+  // Attach outcomes and units to modules (simple approach: first module gets first outcomes/units)
+  if (tree.modules.length > 0) {
+    let loIdx = 0, unitIdx = 0, sectionIdx = 0;
+
+    for (let m = 0; m < tree.modules.length; m++) {
+      // Add next outcome if it's close in line number
+      if (loIdx < sortedOutcomes.length && 
+          Math.abs(sortedOutcomes[loIdx].lineIndex - tree.modules[m].lineIndex) < 5) {
+        if (!tree.modules[m].learningOutcomes) tree.modules[m].learningOutcomes = [];
+        tree.modules[m].learningOutcomes.push({
+          number: sortedOutcomes[loIdx].text.match(/(\d+)/)[0],
+          text: sortedOutcomes[loIdx].text,
+          lineIndex: sortedOutcomes[loIdx].lineIndex,
+        });
+        loIdx++;
+      }
+
+      // Add next unit if close in line number
+      if (unitIdx < sortedUnits.length &&
+          Math.abs(sortedUnits[unitIdx].lineIndex - tree.modules[m].lineIndex) < 5) {
+        if (!tree.modules[m].units) tree.modules[m].units = [];
+        tree.modules[m].units.push({
+          number: sortedUnits[unitIdx].text.match(/(\d+)/)[0],
+          text: sortedUnits[unitIdx].text,
+          lineIndex: sortedUnits[unitIdx].lineIndex,
+        });
+        unitIdx++;
+      }
+
+      // Add next section if close in line number
+      if (sectionIdx < sortedSections.length &&
+          Math.abs(sortedSections[sectionIdx].lineIndex - tree.modules[m].lineIndex) < 5) {
+        if (!tree.modules[m].sections) tree.modules[m].sections = [];
+        tree.modules[m].sections.push({
+          number: sortedSections[sectionIdx].text.match(/(\d+)/) || ['?'],
+          text: sortedSections[sectionIdx].text,
+          lineIndex: sortedSections[sectionIdx].lineIndex,
+          depth: sortedSections[sectionIdx].depth || 1,
+        });
+        sectionIdx++;
+      }
+    }
+  }
+
+  // Determine confidence level
+  const totalDetected = findings.modules.size + findings.outcomes.size + findings.units.size + findings.sections.size;
+  if (totalDetected >= 6) tree.confidence = 'High';
+  else if (totalDetected >= 3) tree.confidence = 'Medium';
+  else if (totalDetected > 0) tree.confidence = 'Low';
+
+  // If we found a module title, also try to extract it
+  if (title && !tree.moduleTitle) {
+    const modMatch = title.match(/([A-Z]{2,}[0-9]{3,}[A-Z]?\s+[\w\s]+)/i);
+    if (modMatch) {
+      tree.moduleTitle = modMatch[1].trim();
+    }
+  }
+
+  // Return null if very minimal detection
+  if (totalDetected < 2) return null;
+
+  return tree;
+}
+
+/**
+ * Clean text for structure detection: remove repeated headers, footers, page numbers
+ */
+function cleanTextForStructure(text) {
+  // Remove common page header patterns (all caps, short, on separate lines)
+  let cleaned = text;
+
+  // Remove things like "SWDPP401 PHP Programming" repeated as headers
+  // Remove page numbers like "1", "2" on their own lines or at line start
+  cleaned = cleaned.replace(/^\s*\d+\s*$/gm, ''); // lone page numbers
+  cleaned = cleaned.replace(/^\s*[A-Z]{2,}\s*$/gm, ''); // all-caps headers
+
+  // Remove common footer patterns
+  cleaned = cleaned.replace(/\b(page|copyright|confidential)\s+\d+/gi, '');
+
+  // Collapse multiple spaces
+  cleaned = cleaned.replace(/\s{3,}/g, ' ');
+
+  return cleaned.trim();
+}
+
+/**
+ * Estimate token count for text (rough: 1 token ≈ 4 characters for English)
+ */
+export function estimateTokens(text) {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
 
 /** Which AI is in use right now (Settings can change it while the server runs). */
 export function activeInfo() {
@@ -65,6 +298,7 @@ function cleanExam(result) {
 // Save a round trip when the chosen provider cannot possibly answer.
 async function ensureReady() {
   if (DEMO) return;
+  if (!(await admin.isAIEnabled())) throw httpError(503, 'Exam Studio is being updated.');
   const ready = await providerReady();
   if (!ready.ok) throw httpError(500, `${ready.reason} Set it in Settings, or set DEMO_MODE=1 to try the app with sample output.`);
 }

@@ -3,6 +3,7 @@ import { get, post, del, uploadFile, download } from './api.js';
 import { login, logout, register, currentUser, setSession, clearSession } from './auth.js';
 import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, validateHandout, handoutStats, estimateHandoutPages, isSectionsExam } from '../../shared/format.js';
 import Settings from './Settings.jsx';
+import Admin from './Admin.jsx';
 import Agents from './Agents.jsx';
 
 const TABS = [
@@ -18,6 +19,7 @@ const BLANK_FIELDS = { email: '', password: '', name: '' };
 
 export default function App() {
   const [health, setHealth] = useState(null);
+  const [quota, setQuota] = useState(null);
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [tab, setTab] = useState('exam');
@@ -43,6 +45,11 @@ export default function App() {
     try { return localStorage.getItem('examStudioTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch { return 'light'; }
   });
   const [update, setUpdate] = useState(null);
+
+  // Structure detection state
+  const [detectedStructure, setDetectedStructure] = useState(null); // {modules, confidence, message}
+  const [structureSelected, setStructureSelected] = useState([]); // selected module/LO/unit indices
+  const [structureMode, setStructureMode] = useState('none'); // 'none', 'library', 'pasted'
 
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
   const [authFields, setAuthFields] = useState(BLANK_FIELDS);
@@ -194,9 +201,32 @@ export default function App() {
     setNotesLibSelectedUnits((r.units || []).map((_, i) => i));
   });
 
+  // ---------------------------------------------------------------- detect structure
+  // Call the server to detect modules, learning outcomes and units in notes text.
+  const detectStructure = async () => {
+    if (text.trim().length < 50) {
+      setDetectedStructure(null);
+      setStructureMode('none');
+      return;
+    }
+    try {
+      const r = await post('/api/notes/detect-structure', { text, title: project.module });
+      setDetectedStructure(r.structure);
+      setStructureMode('pasted');
+      // Auto-select the first module if detected
+      if (r.structure && r.structure.modules && r.structure.modules.length > 0) {
+        setStructureSelected([0]);
+      }
+    } catch (e) {
+      setError(e.message);
+      setDetectedStructure(null);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     refreshNotesLib();
+    get('/me/quota').then(setQuota).catch(() => {});
   }, [user]);
 
   const loadSelectedUnits = () => notesLibSelected && run('upload', async () => {
@@ -282,19 +312,27 @@ export default function App() {
         <div className="topright">
           {health?.demo
             ? <span className="pill warn" title="DEMO_MODE=1: sample output, no AI calls">Demo mode: sample output only</span>
-            : health?.provider && <span className="pill" title={health.model ? `${health.provider} - ${health.model}` : health.provider}>{health.provider}{health.model ? ` - ${health.model}` : ''}</span>}
+            : health?.defaultAI
+              ? <span className="pill" title="Exam Studio AI (default)">Exam Studio AI (default)</span>
+               : health?.provider && <span className="pill" title={health.model ? `Your model: ${health.model}` : health.provider}>{health.model ? `Your model: ${health.model}` : health.provider}</span>}
+           {user && quota?.plan && <span className="pill" title="Remaining quota today">{quota.used.requestsToday}/{quota.plan.requestsPerDay ?? '∞'} req today</span>}
           <button className="link theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? '☀' : '☾'}</button>
           {user && (
             <div className="userbox">
               <span className="who" title={user.email}>{user.name || user.email}</span>
               <button type="button" onClick={() => setShowSettings(true)}>Settings</button>
               <button type="button" onClick={() => setShowAgents(true)}>Agents</button>
+              {user?.role === 'admin' && <button type="button" onClick={() => window.location.assign('/admin')}>Admin</button>}
               <button type="button" onClick={handleLogout}>Sign out</button>
             </div>
           )}
         </div>
       </header>
   );
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+    return <Admin onExit={() => window.location.assign('/')} />;
+  }
 
   return (
     <div className={user ? 'app app-shell' : 'app'}>

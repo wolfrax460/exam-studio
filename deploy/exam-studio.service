@@ -1,0 +1,23 @@
+[Unit]
+Description=Exam Studio
+After=network.target
+
+[Service]
+Type=simple
+User=examstudio
+Group=examstudio
+WorkingDirectory=/opt/exam-studio
+EnvironmentFile=/opt/exam-studio/.env
+ExecStart=/opt/exam-studio/node/bin/node --max-old-space-size=192 /opt/exam-studio/server/index.js
+Restart=on-failure
+RestartSec=5
+MemoryMax=300M
+MemoryHigh=250M
+CPUQuota=60%
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
+'

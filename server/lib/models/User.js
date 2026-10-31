@@ -26,6 +26,37 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: 80,
   },
+  role: {
+    type: String,
+    enum: ['admin', 'teacher', 'student'],
+    default: 'student',
+  },
+  planId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Plan',
+  },
+  active: {
+    type: Boolean,
+    default: true,
+  },
+  mustChangePassword: {
+    type: Boolean,
+    default: false,
+  },
+  tokenVersion: {
+    type: Number,
+    default: 0,
+  },
+  overrides: {
+    extraDailyRequests: { type: Number, default: 0 },
+    extraDailyTokens: { type: Number, default: 0 },
+    boostExpiry: { type: Date },
+  },
+  totpSecret: { type: String },
+  totpEnabled: { type: Boolean, default: false },
+  lastSignInAt: {
+    type: Date,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

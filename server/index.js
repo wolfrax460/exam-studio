@@ -15,13 +15,16 @@ import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
 import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus } from './lib/store.js';
-import { normalizeEmail, findUserByEmail, createUser } from './lib/repository.js';
+import { normalizeEmail, findUserByEmail, createUser, countUsers } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
   generateToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
 } from './lib/auth.js';
 import { updateSettings, getSettings } from './lib/settings.js';
 import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js';
+import * as admin from './lib/adminStore.js';
+import { requireAdmin } from './lib/auth.js';
+import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
@@ -170,13 +173,15 @@ const settingsPayload = (req) => {
 app.get('/api/health', optionalAuthenticateUser, wrap(async (req, res) => {
   const info = activeInfo();
   const storage = storageStatus();
+  const isDefaultAI = info.id === 'nvidia';
   res.json({
     ok: true,
     version: VERSION,
     demo: info.demo,
-    provider: info.provider,
-    providerId: info.id,
-    model: info.model,
+    provider: isDefaultAI ? 'Exam Studio AI' : info.provider,
+    providerId: isDefaultAI ? 'exam-studio-ai' : info.id,
+    model: isDefaultAI ? null : info.model,
+    defaultAI: isDefaultAI,
     storage: {
       backend: storage.backend,
       connected: storage.connected,
@@ -247,6 +252,13 @@ app.post('/api/auth/login', loginLimit, wrap(async (req, res) => {
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw httpError(401, 'Email or password is not correct.');
 
+  if (user.totpEnabled) {
+    const code = String(req.body?.totpCode || '').trim();
+    if (!code || !totp.verifyTotp(user.totpSecret, code)) {
+      throw httpError(401, 'Invalid or missing two-factor code.');
+    }
+  }
+
   res.json({ token: generateToken(user), user: publicUser(user) });
 }));
 
@@ -300,19 +312,39 @@ app.post('/api/notes-lib/load', wrap(async (req, res) => {
     text: (file.text || '').slice(0, MAX_NOTES_CHARS),
   });
 }));
+
+// ---------------------------------------------------------------- detect structure
+// Detect modules, learning outcomes, units and sections in notes text.
+app.post('/api/notes/detect-structure', wrap(async (req, res) => {
+  const text = String(req.body?.text ?? '');
+  const title = s(req.body?.title, 120);
+  if (text.length < 50) throw httpError(400, 'No notes text provided.');
+  const structure = detectStructure(text, title);
+  if (!structure) {
+    return res.json({ structure: null, message: 'No structure detected. The whole notes will be processed.' });
+  }
+  res.json({ structure, message: 'Structure detected successfully.' });
+}));
 // ---------------------------------------------------------------- generate
-app.post('/api/notes/generate', generateLimit, wrap(async (req, res) => {
-  const notes = await generateNotes({ text: notesFrom(req.body), title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  if (req.user) { await admin.enforceLimits(req.user.id, 'notes', text); }
+  const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
   res.json(notes);
 }));
 
-app.post('/api/flashcards/generate', generateLimit, wrap(async (req, res) => {
-  const cards = await generateCards({ text: notesFrom(req.body), title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+app.post('/api/flashcards/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  if (req.user) { await admin.enforceLimits(req.user.id, 'flashcards', text); }
+  const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
   res.json(cards);
 }));
 
-app.post('/api/exams/generate', generateLimit, wrap(async (req, res) => {
+app.post('/api/exams/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
   const text = notesFrom(req.body);
+  if (req.user) { await admin.enforceLimits(req.user.id, 'exam', text); }
   const layout = req.body?.layout === 'classic' ? 'classic' : 'sections-a-e';
   const totalMarksTarget = int(req.body?.totalMarks, 100, 10, 200);
   const avoid = (Array.isArray(req.body?.avoid) ? req.body.avoid : []).slice(0, 60).map((a) => s(a, 200)).filter(Boolean);
@@ -331,6 +363,7 @@ app.post('/api/exams/generate', generateLimit, wrap(async (req, res) => {
       sectionPlan: Array.isArray(req.body?.sectionPlan) ? req.body.sectionPlan : undefined,
     });
     if (DEMO) { exam.warnings = validateExam(exam, totalMarksTarget); exam.totalMarks = totalMarks(exam); }
+    if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
     return res.json(exam);
   }
 
@@ -340,24 +373,29 @@ app.post('/api/exams/generate', generateLimit, wrap(async (req, res) => {
   const essayCount = types.includes('essay') ? int(req.body?.essayCount, 2, 1, 4) : 0;
   const exam = await generateExam({ ...common, types, essayCount });
   if (DEMO) { exam.warnings = validateExam(exam, null); exam.totalMarks = totalMarks(exam); }
+  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
   res.json(exam);
 }));
 
 // ---------------------------------------------------------------- export
-app.post('/api/export/exam-docx', wrap(async (req, res) => {
+app.post('/api/export/exam-docx', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-word');
   const exam = examFrom(req.body);
   send(res, await examDocx(exam, metaFrom(req.body)), `${examFileName(exam, 'Exam')}.docx`, DOCX);
 }));
-app.post('/api/export/key-docx', wrap(async (req, res) => {
+app.post('/api/export/key-docx', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-word');
   const exam = examFrom(req.body);
   send(res, await keyDocx(exam, metaFrom(req.body)), `${examFileName(exam, 'Exam_Marking_Scheme')}.docx`, DOCX);
 }));
 // The PDFs are the same paper as the Word files: the sectioned layout is a real two-column flow.
-app.post('/api/export/exam-pdf', wrap(async (req, res) => {
+app.post('/api/export/exam-pdf', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-pdf');
   const exam = examFrom(req.body);
   send(res, await examPdf(exam, metaFrom(req.body)), `${examFileName(exam, 'Exam')}.pdf`, PDF);
 }));
-app.post('/api/export/key-pdf', wrap(async (req, res) => {
+app.post('/api/export/key-pdf', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-pdf');
   const exam = examFrom(req.body);
   send(res, await keyPdf(exam, metaFrom(req.body)), `${examFileName(exam, 'Exam_Marking_Scheme')}.pdf`, PDF);
 }));
@@ -419,7 +457,8 @@ app.post('/api/export/google-sheets', wrap(async (req, res) => {
 
   res.json({ spreadsheetId, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit` });
 }));
-app.post('/api/export/notes-docx', wrap(async (req, res) => {
+app.post('/api/export/notes-docx', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-word');
   const notes = req.body?.notes;
   if (!notes || !Array.isArray(notes.sections) || !notes.sections.length) throw httpError(400, 'No notes to export.');
   send(res, await notesDocx(notes), `${safeName(notes.title, 'Study_Notes')}.docx`, DOCX);
@@ -441,14 +480,16 @@ function rememberHandoutStep(jobId, userId, step) {
   }
 }
 
-app.post('/api/handouts/generate', generateLimit, wrap(async (req, res) => {
+app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
   const jobId = s(req.body?.jobId, 60);
   const units = (Array.isArray(req.body?.units) ? req.body.units : []).map((unit) => s(unit, 10)).filter(Boolean);
+  const handoutText = notesFrom(req.body);
+  if (req.user) { await admin.enforceLimits(req.user.id, 'handout', handoutText); }
   const job = jobId ? { userId: req.userId, steps: [], startedAt: Date.now(), done: false } : null;
   if (job) handoutJobs.set(jobId, job);
   try {
     const handout = await generateHandout({
-      text: notesFrom(req.body),
+      text: handoutText,
       title: s(req.body?.title, 120),
       level: s(req.body?.level, 20),
       units,
@@ -457,6 +498,7 @@ app.post('/api/handouts/generate', generateLimit, wrap(async (req, res) => {
       onProgress: (step) => rememberHandoutStep(jobId, req.userId, step),
       shouldCancel: () => Boolean(handoutJobs.get(jobId)?.cancelled),
     });
+    if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(handoutText.length / 4), success: true }); }
     res.json(handout);
   } finally {
     const finished = jobId && handoutJobs.get(jobId);
@@ -478,13 +520,15 @@ app.get('/api/handouts/progress/:id', wrap(async (req, res) => {
   res.json({ steps: job.steps, done: job.done });
 }));
 
-app.post('/api/export/handout-docx', wrap(async (req, res) => {
+app.post('/api/export/handout-docx', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-word');
   const handout = req.body?.handout;
   if (!handout || !Array.isArray(handout.units) || !handout.units.length) throw httpError(400, 'No handout to export.');
   send(res, await handoutDocx(handout), `${safeName(handout.title, 'Study_Handout')}.docx`, DOCX);
 }));
 
-app.post('/api/export/handout-pdf', wrap(async (req, res) => {
+app.post('/api/export/handout-pdf', optionalAuthenticateUser, wrap(async (req, res) => {
+  if (req.user) await admin.checkFeature(req.user.id, 'export-pdf');
   const handout = req.body?.handout;
   if (!handout || !Array.isArray(handout.units) || !handout.units.length) throw httpError(400, 'No handout to export.');
   send(res, await handoutPdf(handout), `${safeName(handout.title, 'Study_Handout')}.pdf`, 'application/pdf');
@@ -582,8 +626,10 @@ app.post('/api/settings/test', providerLimit, wrap(async (_req, res) => {
   res.json({ provider: result.provider, model: result.model, ms: Date.now() - started, text: result.text });
 }));
 
-app.get('/api/settings/models', providerLimit, wrap(async (_req, res) => {
-  res.json({ models: await listProviderModels() });
+app.get('/api/settings/models', providerLimit, wrap(async (req, res) => {
+  const local = requestIsLocal(req);
+  const models = await listProviderModels(undefined, { requestIsLocal: local });
+  res.json({ models });
 }));
 
 // ---------------------------------------------------------------- update check
@@ -635,6 +681,229 @@ app.get('/api/agents/info', wrap(async (req, res) => {
   res.json({ ...info, snippets: snippets(info) });
 }));
 
+// ---------------------------------------------------------------- admin API
+const adminGuard = [authenticateUser, requireAdmin];
+
+app.get('/api/admin/me', ...adminGuard, wrap(async (req, res) => { res.json({ user: publicUser(req.user) }); }));
+
+// Users
+app.get('/api/admin/users', ...adminGuard, wrap(async (req, res) => {
+  const page = int(req.query.page, 1, 1, 10000);
+  const limit = int(req.query.limit, 20, 1, 100);
+  const data = await admin.listUsers({ search: s(req.query.search || '', 100), role: s(req.query.role || '', 20), page, limit });
+  res.json(data);
+}));
+app.post('/api/admin/users', ...adminGuard, wrap(async (req, res) => {
+  const email = s(req.body?.email, 254);
+  const name = s(req.body?.name, 80);
+  const password = String(req.body?.password || '');
+  const role = s(req.body?.role, 20) || 'student';
+  if (!email || !name || !password) throw httpError(400, 'Email, name and password are required.');
+  const pwErr = validatePassword(password);
+  if (pwErr) throw httpError(400, pwErr);
+  const created = await createUser({ email, name, passwordHash: await hashPassword(password), role, planId: req.body?.planId || null, active: req.body?.active !== false, mustChangePassword: Boolean(req.body?.mustChangePassword) });
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.create', targetType: 'user', targetId: created.id, after: { email, name, role } });
+  res.status(201).json(created);
+}));
+app.get('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
+  const u = await admin.getUserById(req.params.id);
+  if (!u) throw httpError(404, 'User not found.');
+  res.json(u);
+}));
+app.put('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
+  const patch = {};
+  if (req.body?.name !== undefined) patch.name = s(req.body.name, 80);
+  if (req.body?.role !== undefined) patch.role = s(req.body.role, 20);
+  if (req.body?.planId !== undefined) patch.planId = req.body.planId || null;
+  if (req.body?.active !== undefined) patch.active = Boolean(req.body.active);
+  if (req.body?.overrides !== undefined) patch.overrides = req.body.overrides;
+  const updated = await admin.updateUser(req.params.id, patch);
+  if (!updated) throw httpError(404, 'User not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.update', targetType: 'user', targetId: req.params.id, after: patch });
+  res.json(updated);
+}));
+app.delete('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
+  const ok = await admin.deleteUser(req.params.id);
+  if (!ok) throw httpError(404, 'User not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.delete', targetType: 'user', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+app.post('/api/admin/users/:id/reset-password', ...adminGuard, wrap(async (req, res) => {
+  const password = String(req.body?.password || '');
+  const pwErr = validatePassword(password);
+  if (pwErr) throw httpError(400, pwErr);
+  const updated = await admin.resetUserPassword(req.params.id, await hashPassword(password));
+  if (!updated) throw httpError(404, 'User not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.resetPassword', targetType: 'user', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+app.post('/api/admin/users/:id/signout', ...adminGuard, wrap(async (req, res) => {
+  await admin.updateUser(req.params.id, { forceSignOut: true });
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.signout', targetType: 'user', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+
+// Plans
+app.get('/api/admin/plans', ...adminGuard, wrap(async (_req, res) => { res.json({ items: await admin.listPlans() }); }));
+app.post('/api/admin/plans', ...adminGuard, wrap(async (req, res) => {
+  const plan = await admin.createPlan(req.body || {});
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'plan.create', targetType: 'plan', targetId: plan.id, after: req.body });
+  res.status(201).json(plan);
+}));
+app.put('/api/admin/plans/:id', ...adminGuard, wrap(async (req, res) => {
+  const before = await admin.getPlanById ? null : null;
+  const plan = await admin.updatePlan(req.params.id, req.body || {});
+  if (!plan) throw httpError(404, 'Plan not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'plan.update', targetType: 'plan', targetId: req.params.id, before: {}, after: req.body });
+  res.json(plan);
+}));
+app.delete('/api/admin/plans/:id', ...adminGuard, wrap(async (req, res) => {
+  const movePlanId = s(req.body?.movePlanId || req.query?.movePlanId || '', 64) || undefined;
+  const ok = await admin.deletePlan(req.params.id, movePlanId);
+  if (!ok) throw httpError(404, 'Plan not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'plan.delete', targetType: 'plan', targetId: req.params.id, after: { movePlanId } });
+  res.json({ ok: true });
+}));
+app.post('/api/admin/plans/:id/duplicate', ...adminGuard, wrap(async (req, res) => {
+  const plan = await admin.duplicatePlan(req.params.id);
+  if (!plan) throw httpError(404, 'Plan not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'plan.duplicate', targetType: 'plan', targetId: plan.id });
+  res.status(201).json(plan);
+}));
+app.post('/api/admin/plans/:id/default', ...adminGuard, wrap(async (req, res) => {
+  const plan = await admin.setDefaultPlan(req.params.id);
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'plan.default', targetType: 'plan', targetId: req.params.id });
+  res.json(plan);
+}));
+
+// AI config
+app.get('/api/admin/ai-config', ...adminGuard, wrap(async (_req, res) => { res.json(await admin.getAIConfig()); }));
+app.put('/api/admin/ai-config', ...adminGuard, wrap(async (req, res) => {
+  const cfg = await admin.updateAIConfig(req.body || {});
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'aiConfig.update', targetType: 'aiConfig', after: req.body });
+  res.json(cfg);
+}));
+app.post('/api/admin/ai-config/test', ...adminGuard, wrap(async (req, res) => {
+  const result = await pingProvider();
+  res.json({ provider: result.provider, model: result.model, ms: 0, text: result.text });
+}));
+app.get('/api/admin/ai-config/models', ...adminGuard, wrap(async (_req, res) => {
+  res.json({ models: await listProviderModels(undefined, { requestIsLocal: true }) });
+}));
+
+// Usage
+app.get('/api/admin/usage', ...adminGuard, wrap(async (req, res) => {
+  const data = await admin.listUsage({ userId: s(req.query.userId || '', 64) || undefined, taskType: s(req.query.taskType || '', 20) || undefined, page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
+  res.json(data);
+}));
+app.get('/api/admin/usage/summary', ...adminGuard, wrap(async (_req, res) => { res.json(await admin.usageSummary()); }));
+
+// Content
+app.get('/api/admin/content', ...adminGuard, wrap(async (req, res) => {
+  const data = await admin.listLibraryItemsAdmin({ kind: s(req.query.kind || '', 20) || undefined, page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 20, 1, 100) });
+  res.json(data);
+}));
+app.delete('/api/admin/content/:id', ...adminGuard, wrap(async (req, res) => {
+  const ok = await admin.deleteLibraryItemAdmin(req.params.id);
+  if (!ok) throw httpError(404, 'Not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'content.delete', targetType: 'libraryItem', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+
+// Announcements
+app.get('/api/admin/announcements', ...adminGuard, wrap(async (_req, res) => { res.json({ items: await admin.listAnnouncements() }); }));
+app.post('/api/admin/announcements', ...adminGuard, wrap(async (req, res) => {
+  const a = await admin.createAnnouncement(req.body || {});
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'announcement.create', targetType: 'announcement', targetId: a.id });
+  res.status(201).json(a);
+}));
+app.put('/api/admin/announcements/:id', ...adminGuard, wrap(async (req, res) => {
+  const a = await admin.updateAnnouncement(req.params.id, req.body || {});
+  if (!a) throw httpError(404, 'Not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'announcement.update', targetType: 'announcement', targetId: req.params.id });
+  res.json(a);
+}));
+app.delete('/api/admin/announcements/:id', ...adminGuard, wrap(async (req, res) => {
+  const ok = await admin.deleteAnnouncement(req.params.id);
+  if (!ok) throw httpError(404, 'Not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'announcement.delete', targetType: 'announcement', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+
+// Audit
+app.get('/api/admin/audit', ...adminGuard, wrap(async (req, res) => {
+  const data = await admin.listAudit({ page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
+  res.json(data);
+}));
+
+// System settings
+app.get('/api/admin/settings', ...adminGuard, wrap(async (_req, res) => { res.json(await admin.allSystemSettings()); }));
+app.put('/api/admin/settings', ...adminGuard, wrap(async (req, res) => {
+  const body = req.body || {};
+  for (const [k, v] of Object.entries(body)) {
+    await admin.setSystemSetting(k, v, req.user.id);
+  }
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'settings.update', targetType: 'settings', after: body });
+  res.json(await admin.allSystemSettings());
+}));
+
+// Two-factor auth for admins
+app.post('/api/admin/2fa/setup', ...adminGuard, wrap(async (req, res) => {
+  const secret = totp.newSecret();
+  await admin.updateUser(req.user.id, { totpSecret: secret, totpEnabled: false });
+  const url = totp.otpauthUrl(secret, req.user.email);
+  res.json({ secret, otpauthUrl: url });
+}));
+app.post('/api/admin/2fa/verify', ...adminGuard, wrap(async (req, res) => {
+  const user = await findUserByEmail(req.user.email);
+  const code = String(req.body?.code || '');
+  if (!user?.totpSecret || !totp.verifyTotp(user.totpSecret, code)) throw httpError(400, 'Invalid code.');
+  await admin.updateUser(req.user.id, { totpEnabled: true });
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: '2fa.enable', targetType: 'user', targetId: req.user.id });
+  res.json({ ok: true });
+}));
+app.post('/api/admin/2fa/disable', ...adminGuard, wrap(async (req, res) => {
+  await admin.updateUser(req.user.id, { totpSecret: null, totpEnabled: false });
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: '2fa.disable', targetType: 'user', targetId: req.user.id });
+  res.json({ ok: true });
+}));
+
+// Active announcements for users
+app.get('/api/announcements/active', optionalAuthenticateUser, wrap(async (_req, res) => {
+  res.json({ items: await admin.activeAnnouncements() });
+}));
+
+// System health
+app.get('/api/admin/health', ...adminGuard, wrap(async (_req, res) => {
+  res.json({ ok: true, storage: storageStatus(), version: VERSION, uptime: process.uptime(), memory: process.memoryUsage() });
+}));
+app.get('/api/admin/system', ...adminGuard, wrap(async (_req, res) => {
+  res.json(await admin.systemInfo());
+}));
+app.post('/api/admin/diagnostics', ...adminGuard, wrap(async (req, res) => {
+  const id = s(req.body?.id, 40);
+  const result = await admin.runDiagnostic(id);
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'diagnostic.run', targetType: 'diagnostic', targetId: id, after: result });
+  res.json(result);
+}));
+
+// User quota meter
+app.get('/api/me/quota', authenticateUser, wrap(async (req, res) => {
+  const plan = await admin.getUserPlan(req.user.id);
+  const now = new Date();
+  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  res.json({
+    plan: plan ? { name: plan.name, requestsPerDay: plan.requestsPerDay, requestsPerMonth: plan.requestsPerMonth, tokensPerDay: plan.tokensPerDay, tokensPerMonth: plan.tokensPerMonth } : null,
+    used: {
+      requestsToday: await admin.usageCount(req.user.id, startOfDay),
+      requestsMonth: await admin.usageCount(req.user.id, startOfMonth),
+      tokensToday: await admin.tokenCount(req.user.id, startOfDay),
+      tokensMonth: await admin.tokenCount(req.user.id, startOfMonth),
+    },
+  });
+}));
+
 // ---------------------------------------------------------------- client + errors
 const dist = path.resolve(__dirname, '../client/dist');
 if (fs.existsSync(dist)) {
@@ -668,6 +937,25 @@ export { app };
  */
 export async function start(port = PORT, host = process.env.HOST) {
   await initStorage();
+  await admin.getAIConfig().catch(() => {}); // populate cache
+
+  // First-admin bootstrap from environment (never a default password).
+  try {
+    const adminEmail = String(process.env.EXAM_STUDIO_ADMIN_EMAIL || '').trim();
+    const adminPassword = String(process.env.EXAM_STUDIO_ADMIN_PASSWORD || '').trim();
+    if (adminEmail && adminPassword) {
+      const existing = await findUserByEmail(adminEmail);
+      if (!existing) {
+        const err = validatePassword(adminPassword);
+        if (!err) {
+          await createUser({ email: adminEmail, name: 'Administrator', passwordHash: await hashPassword(adminPassword), role: 'admin', mustChangePassword: true });
+          console.log(`Created first admin account: ${adminEmail} (password change required on first sign-in).`);
+        } else {
+          console.warn(`Admin bootstrap skipped: ${err}`);
+        }
+      }
+    }
+  } catch (e) { console.warn('Admin bootstrap failed:', e.message); }
 
   // Look for a newer version in the background, so nobody waits on the network. checkForUpdate
   // only goes out when the cached answer is older than 24 hours.
@@ -692,7 +980,8 @@ export async function start(port = PORT, host = process.env.HOST) {
   const address = server.address();
   const shown = typeof address === 'object' && address ? `${address.address}:${address.port}` : String(address);
   const info = activeInfo();
-  console.log(`Exam Studio API on http://localhost:${typeof address === 'object' && address ? address.port : port}  AI: ${info.provider} / ${info.model}${info.demo ? '  (DEMO MODE: sample output, no API calls)' : ''}`);
+  const aiLabel = info.id === 'nvidia' ? 'Exam Studio AI' : `${info.provider} / ${info.model}`;
+  console.log(`Exam Studio API on http://localhost:${typeof address === 'object' && address ? address.port : port}  AI: ${aiLabel}${info.demo ? '  (DEMO MODE: sample output, no API calls)' : ''}`);
   console.log(`Storage: ${storageStatus().backend === 'mongodb' ? 'MongoDB' : `file (${storageStatus().file})`}  listening on ${shown}`);
 
   const shutdown = () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 2000).unref(); };

@@ -345,3 +345,33 @@ html[data-theme="light"] {
   .tabs button { padding: 8px 10px; }
 }
 
+
+/* ---- admin dashboard ---- */
+.admin { max-width: 1100px; margin: 0 auto; padding: 24px; color: var(--ink); background: var(--bg); }
+.admin-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.admin-head h1 { margin: 0; font-size: 22px; color: var(--ink); }
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.admin-tabs button { background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 6px 12px; border-radius: 6px; cursor: pointer; text-transform: capitalize; }
+.admin-tabs button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.admin-main { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; color: var(--ink); }
+.admin-main h2, .admin-main h3 { margin-top: 0; color: var(--ink); }
+.admin-main table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.admin-main th, .admin-main td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; color: var(--ink); }
+.admin-main .row, .admin-main .row2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.admin-main input, .admin-main select, .admin-main textarea { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; background: var(--field); color: var(--ink); }
+.admin-main textarea { min-width: 260px; min-height: 60px; }
+.admin-main button { padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; }
+.admin-main button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.admin-main .hint { color: var(--muted); font-size: 13px; }
+.admin-main ul { padding-left: 18px; }
+.admin-main li { margin: 4px 0; }
+.admin-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.admin-modal { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 720px; width: 95vw; max-height: 90vh; overflow: auto; }
+.admin-modal h2 { margin-top: 0; }
+.admin-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 12px 0; }
+.admin-card h3 { margin-top: 0; }
+.admin-field { margin: 10px 0; }
+.admin-field label { display: block; font-weight: 600; margin-bottom: 4px; color: var(--ink); }
+.admin-field .help { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.admin-field input[type="checkbox"] { margin-right: 6px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--accent); color: var(--accent-ink); }
