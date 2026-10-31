@@ -1,0 +1,7 @@
+{
+  "name": "exam-studio-landing",
+  "private": true,
+  "scripts": {
+    "build": "sh build.sh"
+  }
+}
