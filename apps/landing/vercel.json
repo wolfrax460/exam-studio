@@ -1,6 +1,6 @@
 {
-  "buildCommand": "sh build.sh",
-  "outputDirectory": ".",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "headers": [
     {
       "source": "/(.*)",

@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-Sitemap: https://examstudio.app/sitemap.xml
-'
