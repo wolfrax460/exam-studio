@@ -4,7 +4,7 @@ export type FaqItem = { q: string; a: string };
 export const config = {
   brand: { name: 'Exam Studio' },
   links: {
-    openApp: import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100',
+    openApp: `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100'}/app`,
     github: 'https://github.com/wolfrax460/exam-studio',
     releases: 'https://github.com/wolfrax460/exam-studio/releases',
     contact: 'hello@examstudio.app'
@@ -55,8 +55,10 @@ export const config = {
     { feature: 'Local/offline mode', free: 'TODO', teacher: 'TODO', unlimited: 'TODO' }
   ],
   desktop: {
-    version: 'TODO v0.2.x', fileSize: 'TODO KB', notes: 'Requires setting the server address after install.',
-    windows: 'TODOinstaller.exe', mac: 'TODOinstaller.dmg', linux: 'TODOinstaller.deb'
+    version: '0.2.1', fileSize: 'Windows setup 171 MB / Linux zip 194 MB', notes: 'Requires setting the server address after install.',
+    windows: String(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100') + '/downloads/Exam-Studio-Setup-0.2.1.exe',
+    mac: 'https://github.com/wolfrax460/exam-studio/releases',
+    linux: String(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100') + '/downloads/Exam-Studio-0.2.1.zip'
   },
   desktopReleasesUrl: 'https://github.com/wolfrax460/exam-studio/releases',
   faq: [

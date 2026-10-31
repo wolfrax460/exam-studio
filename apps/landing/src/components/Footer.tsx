@@ -4,7 +4,8 @@ import { config } from '../config';
 function BackendStatus() {
   const [status, setStatus] = useState<'unknown'|'up'|'down'>('unknown');
   useEffect(() => {
-    const url = `${config.links.openApp.replace(/\/$/, '')}/health`;
+    const base = config.links.openApp.replace('/app', '').replace(/\/$/, '');
+    const url = `${base}/health`;
     fetch(url, { mode: 'cors', cache: 'no-cache' })
       .then((r) => r.ok ? setStatus('up') : setStatus('down'))
       .catch(() => setStatus('down'));

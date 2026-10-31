@@ -1009,7 +1009,10 @@ app.get('/api/me/quota', authenticateUser, wrap(async (req, res) => {
   });
 }));
 
-// ---------------------------------------------------------------- client + errors
+// ---------------------------------------------------------------- downloads and client + errors
+const downloadsDir = path.resolve(__dirname, '../downloads');
+if (fs.existsSync(downloadsDir)) app.use('/downloads', express.static(downloadsDir, { fallthrough: true }));
+
 const dist = path.resolve(__dirname, '../client/dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
