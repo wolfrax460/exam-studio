@@ -48,11 +48,11 @@ export default function Navbar() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <a href="#" className="hidden sm:inline-block btn btn-ghost btn-small">Sign in</a>
+          <a href="/app" className="hidden sm:inline-block btn btn-ghost btn-small">Sign in</a>
           <a href={config.links.openApp} className="btn btn-primary btn-small">Get started</a>
           <ThemeToggle />
           <button aria-label="Open menu" className="md:hidden p-2 rounded-lg border border-[color:var(--c-line)]" onClick={() => setOpen((o) => !o)}>
-            {open ? '✕' : '≡'}
+            {open ? 'âœ•' : 'â‰¡'}
           </button>
         </div>
       </nav>

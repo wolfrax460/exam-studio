@@ -27,7 +27,7 @@ export default function Free() {
         </div>
       </div>
       <div className="flex gap-3 flex-wrap">
-        <a href="#signin" className="btn btn-primary">Get started (sign up)</a>
+        <a href="/app" className="btn btn-primary">Get started (sign up)</a>
         <a href="/app" className="btn btn-ghost">Open Exam Studio</a>
       </div>
     </section>
