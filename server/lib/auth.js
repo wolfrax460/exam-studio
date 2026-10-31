@@ -102,7 +102,7 @@ export const dummyCompare = (password) => bcrypt.compare(String(password), DUMMY
 export function generateToken(user) {
   const id = String(user.id || user._id);
   return jwt.sign(
-    { sub: id, userId: id, email: user.email },
+    { sub: id, userId: id, email: user.email, role: user.role || 'student', tv: user.tokenVersion || 0 },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN, issuer: 'exam-studio' },
   );
@@ -125,7 +125,7 @@ const tokenFrom = (req) => {
   return header.trim() || '';
 };
 
-export const publicUser = (user) => ({ id: String(user.id || user._id), email: user.email, name: user.name });
+export const publicUser = (user) => ({ id: String(user.id || user._id), email: user.email, name: user.name, role: user.role || 'student', mustChangePassword: Boolean(user.mustChangePassword) });
 
 async function userFromRequest(req) {
   const token = tokenFrom(req);
@@ -135,6 +135,9 @@ async function userFromRequest(req) {
   if (!id) throw httpError(401, 'Your session is not valid. Please sign in again.');
   const user = await repo.findUserById(id);
   if (!user) throw httpError(401, 'That account no longer exists.');
+  if (user.active === false) throw httpError(403, 'This account is disabled. Contact your administrator.');
+  const decodedTv = decoded.tv ?? 0;
+  if ((user.tokenVersion || 0) !== decodedTv) throw httpError(401, 'Your session is no longer valid. Please sign in again.');
   return user;
 }
 
@@ -161,7 +164,20 @@ export async function optionalAuthenticateUser(req, _res, next) {
   next();
 }
 
+export function requireAdmin(req, _res, next) {
+  if (!req.user) return next(httpError(401, 'Please sign in to continue.'));
+  if ((req.user.role || 'student') !== 'admin') return next(httpError(403, 'Administrator access required.'));
+  next();
+}
+export function requireRole(...roles) {
+  return (req, _res, next) => {
+    if (!req.user) return next(httpError(401, 'Please sign in to continue.'));
+    if (!roles.includes(req.user.role || 'student')) return next(httpError(403, 'You do not have permission for this action.'));
+    next();
+  };
+}
 export default {
   generateToken, verifyToken, authenticateUser, optionalAuthenticateUser,
   validatePassword, hashPassword, verifyPassword, publicUser, JWT_EXPIRES_IN,
+  requireAdmin, requireRole,
 };

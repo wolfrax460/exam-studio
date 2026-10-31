@@ -36,6 +36,8 @@ function detectModuleCode(name) {
 
 function detectModuleTitle(name, code) {
   let s = path.basename(name, path.extname(name));
+  // Strip leading numeric upload prefixes (e.g. "1791878979963 ") and underscores.
+  s = s.replace(/^\d+[\s_]+/, '');
   if (code) s = s.replace(code, '');
   s = s.replace(/TeM\b/gi, '');
   s = cleanTitleSegment(s);

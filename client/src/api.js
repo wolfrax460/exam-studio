@@ -30,7 +30,7 @@ async function request(path, { json, ...opts } = {}) {
 export const get = async (path) => (await request(path)).json();
 export const post = async (path, json) => (await request(path, { method: 'POST', json })).json();
 export const put = async (path, json) => (await request(path, { method: 'PUT', json })).json();
-export const del = async (path) => { await request(path, { method: 'DELETE' }); };
+export const del = async (path, json) => { await request(path, { method: 'DELETE', ...(json ? { json } : {}) }); };
 
 export async function uploadFile(file) {
   // The body is FormData, so authenticatedFetch deliberately leaves Content-Type unset and

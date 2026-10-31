@@ -160,6 +160,10 @@ function providerDetail(error) {
 // A friendly message for whatever the provider threw.
 export function explainProviderError(error, cfg) {
   const status = error?.status || error?.response?.status;
+  // The built-in AI's real provider, endpoint and model are never shown to users.
+  if (cfg?.id === 'nvidia') {
+    return httpError(status || 502, 'Exam Studio AI is busy / unavailable.');
+  }
   const raw = String(error?.message || 'unknown error');
   const label = cfg?.label || 'AI service';
   const detail = providerDetail(error);
@@ -379,18 +383,20 @@ export async function pingProvider(providerId) {
   if (cfg.protocol === 'cli') {
     if (!cliInstalled(cfg.cli)) throw httpError(400, `${cfg.label} was not found on this computer. Install it and sign in once.`);
     const output = await runCli(cfg.cli, { model: cfg.model, prompt: `${system}\n${user}` });
-    return { provider: cfg.label, model: cfg.model || 'tool default', text: String(output).trim().slice(0, 80) };
+    return { provider: cfg.label, model: cfg.id === 'nvidia' ? 'Exam Studio AI' : (cfg.model || 'tool default'), text: String(output).trim().slice(0, 80) };
   }
   const text = cfg.protocol === 'openai'
     ? await openaiText(cfg, { system, user, maxTokens: 32 })
     : await anthropicText(cfg, { system, user, maxTokens: 32 });
-  return { provider: cfg.label, model: cfg.model, text: String(text).trim().slice(0, 80) };
+  return { provider: cfg.label, model: cfg.id === 'nvidia' ? 'Exam Studio AI' : cfg.model, text: String(text).trim().slice(0, 80) };
 }
 
 /** Model names offered by the provider, for the "List models" button. */
-export async function listProviderModels(providerId) {
+export async function listProviderModels(providerId, { requestIsLocal = false } = {}) {
   const cfg = resolve(providerId || activeProviderId());
   if (!cfg) throw httpError(500, 'The selected AI provider is not known. Pick one again in Settings.');
+  // The built-in AI's real model list is admin-only.
+  if (cfg.id === 'nvidia' && !requestIsLocal) return [];
   if (cfg.protocol === 'cli') return [];
   try {
     if (cfg.protocol === 'openai') {
@@ -413,7 +419,12 @@ export async function providerReady(providerId) {
     const installed = cliInstalled(cfg.cli);
     return { ok: installed, reason: installed ? '' : `${cfg.label} was not found on this computer.` };
   }
-  if (cfg.needsKey && !cfg.apiKey) return { ok: false, reason: `${cfg.keyEnv || 'The API key'} is not set.` };
+  // Default AI: allow without user key if server has NVIDIA_API_KEY set
+  const isDefaultAI = cfg.id === 'nvidia';
+  if (isDefaultAI && !cfg.apiKey && !process.env.NVIDIA_API_KEY) {
+    return { ok: false, reason: 'Exam Studio AI is unavailable.' };
+  }
+  if (cfg.needsKey && !cfg.apiKey && !isDefaultAI) return { ok: false, reason: `${cfg.keyEnv || 'The API key'} is not set.` };
   return { ok: true, reason: '' };
 }
 

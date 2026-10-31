@@ -4,6 +4,19 @@ dist/
 server/data/
 .tmp/
 release/
+build/
+notes/
+*.key
+answer_key.csv
+exam.csv
+exam.docx
+notes.docx
+test_structure.js
+*.pem
+client/dist/
+server/data/settings.json
+server/data/store.json
+server/data/jwt-secret
 
 # Local data the app writes at runtime
 server/data/settings.json

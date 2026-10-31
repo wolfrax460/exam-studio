@@ -3,6 +3,7 @@
 // Groq, Together and most others offer.
 import { getSettings } from './settings.js';
 import { cliInstalled } from './cli.js';
+import * as admin from './adminStore.js';
 
 export const PROVIDERS = {
   anthropic: {
@@ -16,9 +17,10 @@ export const PROVIDERS = {
     help: 'API key from platform.deepseek.com. Needs a topped-up balance.',
   },
   nvidia: {
-    label: 'NVIDIA (build.nvidia.com)', protocol: 'openai', keyEnv: 'NVIDIA_API_KEY', needsKey: true,
-    model: 'meta/llama-3.3-70b-instruct', baseURL: 'https://integrate.api.nvidia.com/v1', maxOut: 8192, chunk: 8000,
-    help: 'Free API key (starts with nvapi-) from build.nvidia.com. Pick a model that supports function calling.',
+    label: 'Exam Studio AI', protocol: 'openai', keyEnv: 'NVIDIA_API_KEY', needsKey: true,
+    model: 'nvidia/nemotron-3.5-super-v1-120b-a12b', baseURL: 'https://integrate.api.nvidia.com/v1', maxOut: 8192, chunk: 8000,
+    help: 'The default AI for Exam Studio. Managed by the administrator.',
+    defaultAI: true,
   },
   ollama: {
     label: 'Ollama (on this computer)', protocol: 'openai', keyEnv: null, needsKey: false,
@@ -64,6 +66,9 @@ export function activeProviderId() {
   const wanted = (env.AI_PROVIDER || '').toLowerCase();
   if (wanted in PROVIDERS) return wanted;
   if (env.ANTHROPIC_API_KEY) return 'anthropic';
+  // Default AI: use built-in NVIDIA model when no user key is set
+  const defaultProvider = env.DEFAULT_AI_PROVIDER ? env.DEFAULT_AI_PROVIDER.toLowerCase() : null;
+  if (defaultProvider && defaultProvider in PROVIDERS) return defaultProvider;
   for (const id of ['deepseek', 'nvidia', 'ollama-cloud']) if (env[PROVIDERS[id].keyEnv]) return id;
   return 'anthropic';
 }
@@ -76,6 +81,9 @@ export function resolve(id = activeProviderId()) {
   const prof = getSettings().profiles?.[chosen] || {};
   const active = chosen === activeProviderId();
   const env = process.env;
+  // Admin-configured default AI (Exam Studio AI) overrides env/settings when present.
+  const adminCfg = chosen === 'nvidia' ? admin.getCachedAIConfig() : null;
+  const adminKey = chosen === 'nvidia' ? admin.getCachedAIKey() : null;
   return {
     id: chosen,
     label: base.label,
@@ -83,38 +91,53 @@ export function resolve(id = activeProviderId()) {
     cli: base.cli,
     needsKey: base.needsKey,
     keyEnv: base.keyEnv,
-    apiKey: prof.apiKey || (base.keyEnv && env[base.keyEnv]) || '',
-    keySource: prof.apiKey ? 'settings' : base.keyEnv && env[base.keyEnv] ? 'env' : '',
-    model: prof.model || (active && env.AI_MODEL) || (chosen === 'anthropic' && env.CLAUDE_MODEL) || base.model,
-    baseURL: prof.baseURL || (active && env.AI_BASE_URL) || base.baseURL,
-    maxOut: Number(prof.maxOutput) || (active && Number(env.AI_MAX_OUTPUT)) || base.maxOut,
+      // The raw API key is never sent to the browser; only whether one is set.
+      keySource: adminCfg?.hasKey ? 'admin' : (prof.apiKey ? 'settings' : base.keyEnv && env[base.keyEnv] ? 'env' : ''),
+    model: (adminCfg?.model) || prof.model || (active && env.AI_MODEL) || (chosen === 'anthropic' && env.CLAUDE_MODEL) || base.model,
+    baseURL: (adminCfg?.baseUrl) || prof.baseURL || (active && env.AI_BASE_URL) || base.baseURL,
+    maxOut: Number(adminCfg?.maxTokens?.notes || adminCfg?.maxTokens?.default) || Number(prof.maxOutput) || (active && Number(env.AI_MAX_OUTPUT)) || base.maxOut,
     chunk: Number(prof.chunkChars) || (active && Number(env.AI_CHUNK_CHARS)) || base.chunk,
+    apiKey: adminKey || prof.apiKey || (base.keyEnv && env[base.keyEnv]) || '',
   };
 }
 
 // Everything the Settings screen needs to draw itself. Pass whether the caller is on the
 // machine running the server: terminal tools can only be used from that machine.
 export function providerCatalog({ requestIsLocal = false } = {}) {
-  return Object.entries(PROVIDERS).map(([id, base]) => {
+  const isAdmin = Boolean(requestIsLocal);
+  const entries = Object.entries(PROVIDERS).map(([id, base]) => {
     const resolved = resolve(id);
     const isCli = base.protocol === 'cli';
+    const isDefaultAI = id === 'nvidia';
+    const displayLabel = isDefaultAI ? 'Exam Studio AI' : base.label;
+    // Normal users never see the real provider, endpoint or model for the default AI.
+    const hideDetails = isDefaultAI && !isAdmin;
     return {
       id,
-      label: base.label,
+      label: displayLabel,
       protocol: base.protocol,
       help: base.help,
-      needsKey: Boolean(base.needsKey),
-      hasKey: Boolean(resolved.apiKey),
-      keySource: resolved.keySource,
+      needsKey: hideDetails ? false : Boolean(base.needsKey),
+      hasKey: hideDetails ? false : Boolean(resolved.apiKey),
+      keySource: hideDetails ? null : resolved.keySource,
       installed: isCli ? cliInstalled(base.cli) : undefined,
       allowed: isCli ? Boolean(requestIsLocal) : true,
-      model: resolved.model,
-      baseURL: resolved.baseURL,
-      maxOutput: resolved.maxOut,
-      chunkChars: resolved.chunk,
-      defaults: { model: base.model, baseURL: base.baseURL, maxOutput: base.maxOut, chunkChars: base.chunk },
+      model: hideDetails ? null : resolved.model,
+      baseURL: hideDetails ? null : resolved.baseURL,
+      maxOutput: hideDetails ? null : resolved.maxOut,
+      chunkChars: hideDetails ? null : resolved.chunk,
+      defaults: hideDetails ? {} : { model: base.model, baseURL: base.baseURL, maxOutput: base.maxOut, chunkChars: base.chunk },
+      // Only admins may edit the default AI's real settings.
+      readOnly: hideDetails,
     };
   });
+  // Exam Studio AI always comes first.
+  const defaultIdx = entries.findIndex((p) => p.id === 'nvidia');
+  if (defaultIdx > 0) {
+    const [item] = entries.splice(defaultIdx, 1);
+    entries.unshift(item);
+  }
+  return entries;
 }
 
 export const isLocalUrl = (u) => /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(u || '');
