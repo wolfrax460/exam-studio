@@ -18,7 +18,7 @@ function kigaliDay() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kigali', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replace(/\//g, '-');
 }
 
-function resetsAtIso() {
+export function resetsAtIso() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kigali', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).split('/');
   const base = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : parts[0];
   const [y, m, d] = base.split('-').map(Number);
