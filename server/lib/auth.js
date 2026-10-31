@@ -125,8 +125,7 @@ const tokenFrom = (req) => {
   return header.trim() || '';
 };
 
-export const publicUser = (user) => ({ id: String(user.id || user._id), email: user.email, name: user.name, role: user.role || 'student', mustChangePassword: Boolean(user.mustChangePassword) });
-
+export const publicUser = (user) => ({ id: String(user.id || user._id), email: user.email, name: user.name, role: user.role || 'student', mustChangePassword: Boolean(user.mustChangePassword), emailVerified: user.emailVerified !== false });
 async function userFromRequest(req) {
   const token = tokenFrom(req);
   if (!token) throw httpError(401, 'Please sign in to continue.');

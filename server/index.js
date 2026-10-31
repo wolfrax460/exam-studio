@@ -27,6 +27,7 @@ import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js
 import * as admin from './lib/adminStore.js';
 import { verifyPatToken } from './lib/adminStore.js';
 import * as mailer from './lib/mailer.js';
+import { dailyGenerationLimit, anonymousGenerationLimit, generationRateLimit, resetsAtIso } from './lib/dailyLimit.js';
 import { requireAdmin } from './lib/auth.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
@@ -305,10 +306,24 @@ app.get('/api/auth/me', optionalAuthenticateUser, wrap(async (req, res) => {
   res.json({ user: req.user ? publicUser(req.user) : null });
 }));
 
+app.get('/api/limits', wrap(async (_req, res) => {
+  res.json({ dailyGenerationLimit: dailyGenerationLimit(), anonymousGenerationLimit: anonymousGenerationLimit(), resetsAt: resetsAtIso() });
+}));
+
+app.get('/api/usage', optionalAuthenticateUser, wrap(async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const userId = req.user?.id || req.user?._id;
+  const key = userId ? 'user:'+userId : 'ip:'+ip;
+  const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Kigali' });
+  const doc = await (await import('./lib/models/DailyUsage.js')).default.findOne({ key, day }).lean();
+  const limit = userId ? dailyGenerationLimit() : anonymousGenerationLimit();
+  res.json({ used: doc?.count || 0, limit, resetsAt: resetsAtIso() });
+}));
+
+
 app.get('/api/auth/verify-email', wrap(async (req, res) => {
   const token = String(req.query?.token || '');
   if (!token) throw httpError(400, 'Verification token is required.');
-  User = User;
   const hashed = crypto.createHash('sha256').update(token).digest('hex');
   const user = await User.findOne({ emailVerificationTokenHash: hashed, emailVerificationExpires: { $gt: new Date() } });
   if (!user) throw httpError(400, 'Verification link is invalid or expired.');
@@ -403,6 +418,7 @@ app.post('/api/v1/generate/handout', wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- protected routes
 app.use('/api', authenticateUser);
+app.use('/api', generationRateLimit);
 
 // Personal access tokens
 app.get('/api/tokens', wrap(async (req, res) => {

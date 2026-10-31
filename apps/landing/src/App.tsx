@@ -4,12 +4,14 @@ import Hero from './components/Hero';
 import DemoPlayground from './components/DemoPlayground';
 import Features from './components/Features';
 import HowItWorks from './components/HowItWorks';
-import Pricing from './components/Pricing';
+import Free from './components/Free';
+import Docs from './components/Docs';
 import AITools from './components/AITools';
 import Desktop from './components/Desktop';
 import FAQ from './components/FAQ';
-import { Privacy, Terms, Refunds } from './components/Legal';
+import { Privacy, Terms } from './components/Legal';
 import ResetPassword from './components/ResetPassword';
+function RefundRedirect(){ window.location.replace('/terms'); return null; }
 import Contact from './components/Contact';
 import Changelog from './components/Changelog';
 import Footer from './components/Footer';
@@ -41,7 +43,7 @@ function ScrollChrome() {
   );
 }
 
-const ROUTES: Record<string, ComponentType> = {'/privacy': Privacy, '/terms': Terms, '/refunds': Refunds, '/reset-password': ResetPassword};
+const ROUTES: Record<string, ComponentType> = {'/privacy': Privacy, '/terms': Terms, '/refunds': RefundRedirect, '/reset-password': ResetPassword, '/docs': Docs};
 
 export default function App() {
   const path = (typeof window !== 'undefined' ? window.location.pathname.replace(/\/$/, '') : '') || '/';
@@ -64,7 +66,7 @@ export default function App() {
         <DemoPlayground />
         <Features />
         <HowItWorks />
-        <Pricing />
+        <Free />
         <AITools />
         <Desktop />
         <FAQ />

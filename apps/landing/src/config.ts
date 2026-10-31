@@ -1,4 +1,3 @@
-export type Plan = { id: string; name: string; priceMonthly: string; priceYearly: string; limits: Record<string, string>; features: string[]; recommended: boolean };
 export type FaqItem = { q: string; a: string };
 
 export const config = {
@@ -11,7 +10,7 @@ export const config = {
   nav: [
     { id: 'features', label: 'Features' },
     { id: 'how', label: 'How it works' },
-    { id: 'plans', label: 'Pricing' },
+    { id: 'free', label: 'Free' },
     { id: 'ai-tools', label: 'AI tools' },
     { id: 'desktop', label: 'Desktop' },
     { id: 'faq', label: 'FAQ' }
@@ -29,7 +28,7 @@ export const config = {
     { icon: 'Layers', title: 'Flashcards', text: 'Classic cards plus trap cards that target common mistakes.' },
     { icon: 'Library', title: 'Notes library', text: 'Save per-unit notes and detect the units you have already covered.' },
     { icon: 'Cpu', title: 'Exam Studio AI', text: 'Built-in AI with a bring-your-own-model option.' },
-    { icon: 'SlidersHorizontal', title: 'Plans & limits', text: 'Free, Teacher, Unlimited and custom plans on the server.' },
+    { icon: 'SlidersHorizontal', title: 'Fair use limits', text: 'A daily generation limit shared equally by everyone, raised server-side uniformly.' },
     { icon: 'Download', title: 'Exports', text: 'Word, PDF and CSV exports from day one.' }
   ],
   howSteps: [
@@ -38,20 +37,6 @@ export const config = {
     { title: 'Generate', text: 'Generate study notes, a handout, an exam or flashcards.' },
     { title: 'Review and refine', text: 'Edit the AI output until it is yours.' },
     { title: 'Export', text: 'Export to Word, PDF or CSV and hand out.' }
-  ],
-  plans: [
-    { id: 'free', name: 'Free', priceMonthly: 'TODO', priceYearly: 'TODO', limits: { TODO: 'daily/monthly generation limits not provided' }, features: ['Study notes (limited)', 'Flashcards', 'CSV export'], recommended: false },
-    { id: 'teacher', name: 'Teacher', priceMonthly: 'TODO', priceYearly: 'TODO', limits: { TODO: 'higher daily/monthly generation limits not provided' }, features: ['Everything in Free', 'Handouts (Word/PDF)', 'Exam papers with marking schemes', 'Notes library with unit detection'], recommended: true },
-    { id: 'unlimited', name: 'Unlimited', priceMonthly: 'TODO', priceYearly: 'TODO', limits: { TODO: 'no limits (not provided)' }, features: ['Everything in Teacher', 'Bring your own model', 'Priority generation'], recommended: false }
-  ] as Plan[],
-  customPlan: { title: 'Custom', description: 'Self-hosted or organisation-wide deployment.', cta: 'Talk to us' },
-  comparison: [
-    { feature: 'Study notes', free: true, teacher: true, unlimited: true },
-    { feature: 'Handouts (Word/PDF)', free: false, teacher: true, unlimited: true },
-    { feature: 'Exams with marking scheme', free: false, teacher: true, unlimited: true },
-    { feature: 'Flashcards (including trap cards)', free: true, teacher: true, unlimited: true },
-    { feature: 'Bring your own model', free: false, teacher: false, unlimited: true },
-    { feature: 'Local/offline mode', free: 'TODO', teacher: 'TODO', unlimited: 'TODO' }
   ],
   desktop: {
     version: '0.2.1', fileSize: 'Windows setup 171 MB / Linux zip 194 MB', notes: 'Requires setting the server address after install.',
@@ -62,13 +47,13 @@ export const config = {
   desktopReleasesUrl: 'https://github.com/wolfrax460/exam-studio/releases',
   faq: [
     { q: 'Where are my notes stored?', a: 'Library notes are stored per-account on your server. Notes sent to the AI endpoint follow that endpoint policy; we do not log note content.' },
-    { q: 'Can I use my own AI model?', a: 'Yes — plans with that entitlement allow your own API key; bring-your-own is available on Unlimited and custom plans.' },
+    { q: 'Is it really free?', a: 'Yes. Exam Studio is free for everyone. A fair-use daily generation limit applies to the built-in AI; users with their own model/API key are not limited by it.' },
     { q: 'What file types can I import/export?', a: 'Import pasted text; export Word, PDF and CSV; handwriting recognition is coming soon.' },
-    { q: 'Are there usage limits?', a: 'Each plan has daily and monthly generation limits enforced on the server.' },
-    { q: 'How do plans differ?', a: 'See pricing; Teacher adds handouts, exams with a marking scheme and the notes library.' },
+    { q: 'What is the daily limit and when does it reset?', a: 'The built-in service allows a fixed number of generations per day, read from the server, and resets at 00:00 Africa/Kigali.' },
+    { q: 'What happens when I reach the limit?', a: 'You will see a friendly daily_limit_reached message with the reset time; you can still export and browse saved notes.' },
     { q: 'Can I work offline?', a: 'The desktop app runs locally; generation still needs a configured AI endpoint unless your model runs locally.' },
     { q: 'Do exams have marking schemes?', a: 'Yes — every exam is generated with a separate marking scheme you can print or hide.' },
-    { q: 'Is my data private?', a: 'Notes are sent only to the AI endpoint you configure. We store account, library and usage metadata. Legal privacy text pending (TODO).' }
+    { q: 'Can I get more?', a: 'Configure your own model/API key, or email wolfras87@gmail.com for school or class use.' }
   ] as FaqItem[],
   aiTools: {
     title: 'API & MCP — coming soon',
