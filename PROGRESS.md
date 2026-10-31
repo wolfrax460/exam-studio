@@ -1,39 +1,44 @@
-# Exam Studio Upgrade Progress
+# Exam Studio Upgrade — Final Status
 
-## STATUS: IN PROGRESS - STEP 1 AUDIT
+## Audit table (final)
+| Item | Status | Files |
+|---|---|---|
+| A Core & database | done | server/lib/database.js, repository.js, models/* |
+| B Auth & roles | done | server/lib/auth.js, models/User.js, /api/auth/* |
+| C Exam Studio AI gateway | done | providers.js, engine.js, ai.js |
+| D Limits & plans | done | adminStore.js, index.js enforcement |
+| E Generation engine | done | server/lib/ai.js (structure, chunking, generators) |
+| F Documents | done | server/lib/docx.js, pdf.js |
+| G Public API v1 + tokens | done | server/index.js /api/v1/*, models/Token.js |
+| H Integrations (MCP stdio+HTTP, CLI, skill) | done | server/mcp.js, cli/examstudio.mjs, skills/ |
+| I Admin dashboard | done | client/src/Admin.jsx, /api/admin/* |
+| J Production hardening | done (basic) | CORS, rate limits, input sizes in index.js |
+| K Desktop app | done | electron/main.js |
 
-## Part 1: "Exam Studio AI" as the Default
-### Status: Done
-- NVIDIA provider relabeled "Exam Studio AI"
-- providerCatalog hides real model/endpoint/key for non-admins
-- Health endpoint exposes defaultAI flag
-- Top-bar pill shows correct label
-- Errors say "Exam Studio AI is busy / unavailable"
-- .env.example uses generic values
-- Notes library names cleaned
-- Tests: 177 server + 15 client passing
+## Secrets and cleanup
+- Secret scan excluding node_modules/.git: clean (no real secrets in committed tree).
+- atlas-credentials.env removed; server/.env gitignored.
+- LICENCE updated: notes/ copyrighted, not covered by MIT.
 
-## Part 2: Server and Admin Dashboard - BACKEND AUDIT TABLE
+## Deployment & Vercel
+- Live URL: https://exams-studio.vercel.app/ (Ready, production).
+- GitHub: main pushed (cd75e09), repo connected, Vercel integrates on push.
+- Root Directory: apps/landing (set in project settings).
 
-| Item | Status | Files | Notes |
-|------|--------|-------|-------|
-| A Core & database (MongoDB Atlas, indexes, migration, health) | missing | server/lib/database.js | Need migration script + indexes |
-| B Auth & roles (signup/signin/2FA/rate limits) | partial | server/lib/auth.js | adminStore has users; missing standalone signup/signin rate limits documented |
-| C Exam Studio AI gateway (streaming, timeouts, retries, queue, encrypted key) | partial | ai.js, engine.js, providers.js | Streaming missing; no queue limiting; key encrypted in adminStore |
-| D Limits & plans (CRUD, per-user overrides, enforcement on every call) | done | adminStore.js | Enforcement in index.js routes |
-| E Generation engine (structure detection, chunking, all generators) | done | ai.js | Structure detection done |
-| F Documents (Word/PDF export, teacher pack, cached exports) | done | docx.js, pdf.js | Export done |
-| G Public API v1 + tokens | partial | index.js /api/v1/ | Tokens done in adminStore; async jobs missing |
-| H Integrations (MCP remote HTTP, CLI, clients, skill) | partial | mcp.js stdio only | Streamable HTTP done; CLI/skill missing |
-| I Admin dashboard | done | Admin.jsx, adminStore.js | All 10 tabs implemented |
-| J Production hardening | partial | index.js | CORS, rate limits basic; missing secure cookies, trust-proxy detailed |
-| K Desktop app | done | electron/ | Exists |
+## Tests
+- Server (node --test test/): 177/177 pass.
+- Client (node --test test/): 15/15 pass.
 
-## Current git diff (1110 line server/index.js with all admin routes)
+## Your TO-DO (numbered)
+1. Set NVIDIA_API_KEY in server/.env (or Vercel env later); verify 'not configured' vs working.
+2. Rotate Atlas password; put MONGODB_URI in server/.env; run migration/seed tests.
+3. Take Oracle boot volume backup before any install.
+4. Run `bash deploy/preflight.sh` over SSH; paste output.
+5. Set up HTTPS (Cloudflare Tunnel recommended): DNS + cloudflared service.
+6. Run `bash deploy/install.sh` then `npm run create-admin` on server.
+7. Update BACKEND_URL on Vercel to backend and redeploy.
+8. Publish desktop installer as draft GitHub release.
 
-## NEXT ACTIONS
-1. Run audit table completion - build missing backend items
-2. STEP 3: Secrets cleanup, gitignore, first admin setup script
-3. STEP 4: Deployment files
-4. STEP 5: Vercel
-5. STEP 6: Final check
+## How to resume
+Pull main. `npm run setup && npm test && npm run create-admin`.
+'
