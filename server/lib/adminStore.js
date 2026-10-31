@@ -13,6 +13,7 @@ import AIConfig from './models/AIConfig.js';
 import AuditLog from './models/AuditLog.js';
 import Setting from './models/Setting.js';
 import LibraryItem from './models/LibraryItem.js';
+import Token from './models/Token.js';
 
 const mode = async () => { await initStorage(); return storageMode(); };
 
@@ -688,6 +689,64 @@ export async function checkFeature(userId, feature) {
     throw httpError(403, 'Your plan does not include this feature. Ask your teacher/admin.');
   }
   return true;
+}
+
+export async function createToken(userId, { name, scopes, expiresInDays }) {
+  await initStorage();
+  const raw = `est_${crypto.randomBytes(32).toString('hex')}`;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex');
+  const expiresAt = expiresInDays ? new Date(Date.now() + expiresInDays * 86400000) : null;
+  if (storageMode() === 'mongo') {
+    const doc = await Token.create({ userId, name, tokenHash: hash, scopes: scopes || ['read'], expiresAt });
+    return { id: doc._id.toString(), name, token: raw, scopes: doc.scopes, expiresAt };
+  }
+  const store = getFileStore();
+  store.tokens = store.tokens || [];
+  const t = { id: newId(), userId, name, tokenHash: hash, scopes: scopes || ['read'], expiresAt: expiresAt ? expiresAt.toISOString() : null, revoked: false, createdAt: new Date().toISOString() };
+  store.tokens.push(t);
+  saveFileStore();
+  return { id: t.id, name, token: raw, scopes: t.scopes, expiresAt };
+}
+export async function listTokens(userId) {
+  await initStorage();
+  if (storageMode() === 'mongo') {
+    const docs = await Token.find({ userId }).select('-tokenHash').lean();
+    return docs.map(d => ({ ...d, id: d._id.toString() }));
+  }
+  const store = getFileStore();
+  return (store.tokens || []).filter(t => t.userId === userId).map(({ tokenHash, ...rest }) => rest);
+}
+export async function revokeToken(userId, id) {
+  await initStorage();
+  if (storageMode() === 'mongo') {
+    const r = await Token.updateOne({ _id: id, userId }, { revoked: true });
+    return r.modifiedCount > 0;
+  }
+  const store = getFileStore();
+  const t = (store.tokens || []).find(x => x.id === id && x.userId === userId);
+  if (!t) return false;
+  t.revoked = true;
+  saveFileStore();
+  return true;
+}
+export async function verifyPatToken(raw) {
+  await initStorage();
+  if (!raw) return null;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex');
+  if (storageMode() === 'mongo') {
+    const doc = await Token.findOne({ tokenHash: hash }).lean();
+    if (!doc || doc.revoked) return null;
+    if (doc.expiresAt && new Date(doc.expiresAt) < new Date()) return null;
+    await Token.updateOne({ _id: doc._id }, { lastUsedAt: new Date() });
+    return { userId: doc.userId.toString(), scopes: doc.scopes };
+  }
+  const store = getFileStore();
+  const t = (store.tokens || []).find(x => x.tokenHash === hash);
+  if (!t || t.revoked) return null;
+  if (t.expiresAt && new Date(t.expiresAt) < new Date()) return null;
+  t.lastUsedAt = new Date().toISOString();
+  saveFileStore();
+  return { userId: t.userId, scopes: t.scopes };
 }
 
 export async function isAIEnabled() {

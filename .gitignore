@@ -24,3 +24,5 @@ server/data/jwt-secret
 server/data/store.json
 *.log
 server/samples/
+
+.vercel

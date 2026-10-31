@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { httpError } from './lib/errors.js';
 import { extractText } from './lib/extract.js';
 import { scanNotes, loadNote } from './lib/notesLib.js';
-import { generateNotes, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS } from './lib/ai.js';
+import { generateNotes, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS, detectStructure } from './lib/ai.js';
 import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
@@ -18,15 +18,18 @@ import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus } 
 import { normalizeEmail, findUserByEmail, createUser, countUsers } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
-  generateToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
+  generateToken, verifyToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
 } from './lib/auth.js';
 import { updateSettings, getSettings } from './lib/settings.js';
 import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js';
 import * as admin from './lib/adminStore.js';
+import { verifyPatToken } from './lib/adminStore.js';
 import { requireAdmin } from './lib/auth.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
 
@@ -51,6 +54,36 @@ if (process.env.CORS_ORIGIN) app.use(cors({ origin: process.env.CORS_ORIGIN.spli
 app.use(express.json({ limit: '4mb' }));
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+async function authenticateAny(req, res, next) {
+  const header = req.headers?.authorization || '';
+  const token = /^Bearer\s+(.+)$/i.exec(header.trim())?.[1]?.trim() || header.trim();
+  if (!token) return next(httpError(401, 'Please sign in to continue.'));
+  if (token.startsWith('est_')) {
+    const info = await verifyPatToken(token);
+    if (!info) return next(httpError(401, 'Invalid or expired token.'));
+    const user = await findUserById(info.userId);
+    if (!user) return next(httpError(401, 'Account no longer exists.'));
+    req.user = user;
+    req.userId = user.id;
+    req.scopes = info.scopes;
+    return next();
+  }
+  // JWT
+  try {
+    const decoded = verifyToken(token);
+    const id = decoded.sub || decoded.userId;
+    const user = await findUserById(id);
+    if (!user) return next(httpError(401, 'Account no longer exists.'));
+    if (user.active === false) return next(httpError(403, 'Account disabled.'));
+    req.user = user;
+    req.userId = user.id;
+    req.scopes = ['*'];
+    return next();
+  } catch (e) {
+    return next(e.status ? e : httpError(401, 'Invalid session.'));
+  }
+}
 
 // ---------------------------------------------------------------- helpers
 // Text fields: anything that is not a string or a number becomes empty, so an array or an
@@ -267,8 +300,80 @@ app.get('/api/auth/me', optionalAuthenticateUser, wrap(async (req, res) => {
   res.json({ user: req.user ? publicUser(req.user) : null });
 }));
 
+const OPENAPI_SPEC = { openapi: '3.1.0', info: { title: 'Exam Studio API', version: '0.2.1' }, paths: { '/api/v1/public/plans': { get: { summary: 'List public plans' } } } };
+
+// ---------------------------------------------------------------- public API v1 (PAT or session)
+app.get('/api/v1/public/plans', wrap(async (_req, res) => {
+  const items = await admin.listPlans();
+  res.json({ items: items.map(p => ({ name: p.name, description: p.description, requestsPerDay: p.requestsPerDay, requestsPerMonth: p.requestsPerMonth, tokensPerMonth: p.tokensPerMonth, allowedFeatures: p.allowedFeatures, allowOwnKey: p.allowOwnKey })) });
+}));
+app.get('/api/v1/openapi.json', wrap(async (_req, res) => {
+  res.json(OPENAPI_SPEC);
+}));
+app.use('/api/v1', authenticateAny);
+app.get('/api/v1/me/quota', wrap(async (req, res) => { res.json(await admin.getUserPlan(req.user.id) ? { plan: await admin.getUserPlan(req.user.id) } : {}); }));
+app.get('/api/v1/library', wrap(async (req, res) => { const items = await listItems(req.user.id); res.json({ items }); }));
+app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = String(req.query.text || ''); const structure = detectStructure(text, req.query.title); res.json({ structure }); }));
+
+// Remote MCP (streamable HTTP) - minimal stateless endpoint
+app.post('/mcp', wrap(async (req, res) => {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  const server = new McpServer({ name: 'exam-studio', version: '0.2.1' });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+}));
+
+app.post('/api/v1/generate/notes', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  await admin.enforceLimits(req.user.id, 'notes', text);
+  const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+  await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true });
+  res.json(notes);
+}));
+app.post('/api/v1/generate/flashcards', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  await admin.enforceLimits(req.user.id, 'flashcards', text);
+  const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+  await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true });
+  res.json(cards);
+}));
+app.post('/api/v1/generate/exam', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  await admin.enforceLimits(req.user.id, 'exam', text);
+  const exam = await generateExam({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), types: Array.isArray(req.body?.types) ? req.body.types : ['mcq'], totalMarksTarget: int(req.body?.totalMarks, 100, 10, 200) });
+  await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true });
+  res.json(exam);
+}));
+app.post('/api/v1/generate/handout', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  await admin.enforceLimits(req.user.id, 'handout', text);
+  const handout = await generateHandout({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), includeRevision: req.body?.includeRevision !== false, includePractical: req.body?.includePractical !== false });
+  await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(text.length / 4), success: true });
+  res.json(handout);
+}));
+
 // ---------------------------------------------------------------- protected routes
 app.use('/api', authenticateUser);
+
+// Personal access tokens
+app.get('/api/tokens', wrap(async (req, res) => {
+  res.json({ items: await admin.listTokens(req.user.id) });
+}));
+app.post('/api/tokens', wrap(async (req, res) => {
+  const created = await admin.createToken(req.user.id, {
+    name: s(req.body?.name || 'token', 60),
+    scopes: Array.isArray(req.body?.scopes) ? req.body.scopes : ['read'],
+    expiresInDays: req.body?.expiresInDays,
+  });
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'token.create', targetType: 'token', targetId: created.id });
+  res.status(201).json(created);
+}));
+app.delete('/api/tokens/:id', wrap(async (req, res) => {
+  const ok = await admin.revokeToken(req.user.id, req.params.id);
+  if (!ok) throw httpError(404, 'Token not found.');
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'token.revoke', targetType: 'token', targetId: req.params.id });
+  res.json({ ok: true });
+}));
 
 app.post('/api/auth/logout', wrap(async (_req, res) => {
   // Tokens are stateless; the client drops its copy. Answer so the UI can confirm.

@@ -27,7 +27,7 @@ let file = null;          // { version, users: [], items: [] }
 let fileLoaded = false;
 
 // ---------------------------------------------------------------- file backend
-const emptyFile = () => ({ version: 2, users: [], items: [], plans: [], usageEvents: [], announcements: [], auditLog: [], settings: [], aiConfig: null });
+const emptyFile = () => ({ version: 2, users: [], items: [], plans: [], usageEvents: [], announcements: [], auditLog: [], settings: [], aiConfig: null, tokens: [] });
 
 function readFileStore() {
   if (fileLoaded) return file;
@@ -49,6 +49,7 @@ function readFileStore() {
         auditLog: Array.isArray(raw.auditLog) ? raw.auditLog : [],
         settings: Array.isArray(raw.settings) ? raw.settings : [],
         aiConfig: raw.aiConfig && typeof raw.aiConfig === 'object' ? raw.aiConfig : null,
+        tokens: Array.isArray(raw.tokens) ? raw.tokens : [],
       };
     } else {
       file = emptyFile();

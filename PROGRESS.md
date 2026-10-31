@@ -1,84 +1,39 @@
 # Exam Studio Upgrade Progress
 
+## STATUS: IN PROGRESS - STEP 1 AUDIT
+
 ## Part 1: "Exam Studio AI" as the Default
+### Status: Done
+- NVIDIA provider relabeled "Exam Studio AI"
+- providerCatalog hides real model/endpoint/key for non-admins
+- Health endpoint exposes defaultAI flag
+- Top-bar pill shows correct label
+- Errors say "Exam Studio AI is busy / unavailable"
+- .env.example uses generic values
+- Notes library names cleaned
+- Tests: 177 server + 15 client passing
 
-### Status: Done (Part 1)
+## Part 2: Server and Admin Dashboard - BACKEND AUDIT TABLE
 
-### What's Done
-- [x] NVIDIA provider relabeled "Exam Studio AI"; moved first in catalog
-- [x] providerCatalog hides real model/endpoint/key for non-admins
-- [x] Health endpoint exposes defaultAI flag; no real model id leaked
-- [x] Top-bar pill: "Exam Studio AI (default)" or "Your model: <name>"
-- [x] Errors for default AI: "Exam Studio AI is busy / unavailable."
-- [x] pingProvider/listProviderModels hide real details for non-admins
-- [x] .env.example generic values
-- [x] Client bundle verified free of hidden names
-- [x] Notes library names cleaned (strip leading numeric prefixes)
-- [x] Tests: 177 server + 15 client passing
+| Item | Status | Files | Notes |
+|------|--------|-------|-------|
+| A Core & database (MongoDB Atlas, indexes, migration, health) | missing | server/lib/database.js | Need migration script + indexes |
+| B Auth & roles (signup/signin/2FA/rate limits) | partial | server/lib/auth.js | adminStore has users; missing standalone signup/signin rate limits documented |
+| C Exam Studio AI gateway (streaming, timeouts, retries, queue, encrypted key) | partial | ai.js, engine.js, providers.js | Streaming missing; no queue limiting; key encrypted in adminStore |
+| D Limits & plans (CRUD, per-user overrides, enforcement on every call) | done | adminStore.js | Enforcement in index.js routes |
+| E Generation engine (structure detection, chunking, all generators) | done | ai.js | Structure detection done |
+| F Documents (Word/PDF export, teacher pack, cached exports) | done | docx.js, pdf.js | Export done |
+| G Public API v1 + tokens | partial | index.js /api/v1/ | Tokens done in adminStore; async jobs missing |
+| H Integrations (MCP remote HTTP, CLI, clients, skill) | partial | mcp.js stdio only | Streamable HTTP done; CLI/skill missing |
+| I Admin dashboard | done | Admin.jsx, adminStore.js | All 10 tabs implemented |
+| J Production hardening | partial | index.js | CORS, rate limits basic; missing secure cookies, trust-proxy detailed |
+| K Desktop app | done | electron/ | Exists |
 
-### What's Pending (Part 2)
-- Admin dashboard (not started)
+## Current git diff (1110 line server/index.js with all admin routes)
 
-### Files Modified
-- `server/lib/providers.js`
-- `server/lib/engine.js`
-- `server/index.js`
-- `client/src/App.jsx`
-- `server/.env.example`
-
----
-
-## Part 2: Server and Admin Dashboard
-
-### Status: Complete (core + plans + 2FA; CSRF mitigated by Bearer tokens)
-
-### Architecture
-- AI gateway on server side
-- Admin dashboard at /admin
-- Roles: admin, teacher, student
-
-### Database Tables Needed
-- [ ] users (extend existing)
-- [ ] roles (new)
-- [ ] plans (new)
-- [ ] limits (new - per-user overrides)
-- [ ] usage_events (new)
-- [ ] ai_config (new)
-- [ ] audit_log (new)
-- [ ] announcements (new)
-- [ ] settings (new)
-
-### Dashboard Sections
-1. [x] Overview (summary + health)
-2. [x] Users (CRUD, disable, role, reset pw, signout)
-3. [x] Limits and plans (CRUD, enforcement)
-4. [x] Exam Studio AI settings (config, key write-only, test)
-5. [x] Usage and logs (list + summary)
-6. [x] Content (list + delete)
-7. [x] Announcements (CRUD)
-8. [x] System (health, maintenance toggle)
-9. [x] Audit log (list)
-10. [x] Admin settings (system settings)
-
-### Security
-- [x] Admin routes require admin session (403)
-- [x] Rate limiting on generate/auth routes
-- [x] First admin via env/script, forced pw change
-- [x] Password hashing (bcrypt), disabled-user signout
-- [x] API key encrypted at rest (master key), never returned
-- [ ] CSRF (Bearer-token app; low risk)
-- [ ] Two-factor auth (optional, not implemented)
-
-### Security
-- [ ] Admin routes require admin session
-- [ ] CSRF protection
-- [ ] Two-factor authentication for admins
-- [ ] First admin created by setup command/env var
-- [ ] Never default password
-
----
-
-## Notes
-- Working directory: F:/projects/exam-studio/exam-studio
-- Tests: 177 server tests passing, 15 client tests passing
-- MongoDB used when available, file store fallback
+## NEXT ACTIONS
+1. Run audit table completion - build missing backend items
+2. STEP 3: Secrets cleanup, gitignore, first admin setup script
+3. STEP 4: Deployment files
+4. STEP 5: Vercel
+5. STEP 6: Final check
