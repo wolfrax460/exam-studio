@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import DemoPlayground from './components/DemoPlayground';
@@ -8,7 +8,7 @@ import Pricing from './components/Pricing';
 import AITools from './components/AITools';
 import Desktop from './components/Desktop';
 import FAQ from './components/FAQ';
-import { Privacy, Terms } from './components/Legal';
+import { Privacy, Terms, Refunds } from './components/Legal';
 import Contact from './components/Contact';
 import Changelog from './components/Changelog';
 import Footer from './components/Footer';
@@ -40,7 +40,20 @@ function ScrollChrome() {
   );
 }
 
+const ROUTES: Record<string, ComponentType> = {'/privacy': Privacy, '/terms': Terms, '/refunds': Refunds};
+
 export default function App() {
+  const path = (typeof window !== 'undefined' ? window.location.pathname.replace(/\/$/, '') : '') || '/';
+  const Page = ROUTES[path as keyof typeof ROUTES] as React.ComponentType | undefined;
+  if (Page) {
+    return (
+      <div id="top">
+        <Navbar />
+        <Page />
+        <Footer />
+      </div>
+    );
+  }
   return (
     <div id="top">
       <ScrollChrome />
@@ -54,8 +67,6 @@ export default function App() {
         <AITools />
         <Desktop />
         <FAQ />
-        <Privacy />
-        <Terms />
         <Contact />
         <Changelog />
       </main>
