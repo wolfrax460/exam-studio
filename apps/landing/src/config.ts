@@ -7,8 +7,7 @@ export const config = {
     openApp: '/app',
     backendStatus: '/api/health',    github: 'https://github.com/wolfrax460/exam-studio',
     releases: 'https://github.com/wolfrax460/exam-studio/releases',
-    contact: 'hello@examstudio.app'
-  },
+    contact: 'wolfras87@gmail.com'  },
   nav: [
     { id: 'features', label: 'Features' },
     { id: 'how', label: 'How it works' },
@@ -82,9 +81,10 @@ export const config = {
     { version: 'v0.2.1', date: '2026-10-31', changes: ['Initial public landing page (React, Vite, Tailwind)', 'Dark/light theme with system preference and persistence', 'Pricing comparison table'] }
   ],
   footer: [
-    { label: 'Privacy', href: '#privacy' },
-    { label: 'Terms', href: '#terms' },
-    { label: 'Contact', href: 'mailto:hello@examstudio.app' },
+    { label: 'Privacy', href: '/privacy' },
+    { label: 'Terms', href: '/terms' },
+    { label: 'Refunds', href: '/refunds' },
+    { label: 'Contact', href: 'mailto:wolfras87@gmail.com' },
     { label: 'GitHub', href: 'https://github.com/wolfrax460/exam-studio' },
     { label: 'Changelog', href: '#changelog' }
   ],
