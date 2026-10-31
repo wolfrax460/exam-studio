@@ -21,7 +21,7 @@ export default function Hero(): JSX.Element {
           <motion.a href={config.links.openApp} className="btn btn-primary" whileHover={reduced ? {} : { scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             {config.hero.primaryLabel}
           </motion.a>
-          <motion.a href={config.links.releases} className="btn btn-ghost" whileHover={reduced ? {} : { scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <motion.a href="#desktop" className="btn btn-ghost" whileHover={reduced ? {} : { scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             {config.hero.secondaryLabel}
           </motion.a>
         </div>

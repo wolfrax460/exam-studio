@@ -22,10 +22,10 @@ export default function Desktop() {
         <div>
           <p className="text-sm font-semibold">Detected OS: {os}</p>
           <p className="text-sm opacity-80 mt-1">Version {config.desktop.version} · {config.desktop.fileSize}</p>
-          <a href={primary} className="btn btn-primary mt-5">Download for {os}</a>
+          <a href={primary} download className="btn btn-primary mt-5">Download for {os}</a>
           <div className="mt-4 flex flex-wrap gap-2 text-sm">
             {(['windows', 'mac', 'linux'] as OS[]).filter(o => o !== os).map(o => (
-              <a key={o} href={config.desktop[o]} className="btn btn-ghost btn-small capitalize">{o}</a>
+              <a key={o} href={config.desktop[o]} download className="btn btn-ghost btn-small capitalize">{o}</a>
             ))}
           </div>
           <p className="text-xs mt-4 opacity-70">{config.desktop.notes}</p>
