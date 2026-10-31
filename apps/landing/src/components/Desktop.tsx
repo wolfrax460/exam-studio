@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import defaultDownloads from '../downloads.json';
 
 const SERVER_ADDRESS = 'https://examstudio.duckdns.org';
 
@@ -40,7 +41,7 @@ function fmtBytes(n: number | null): string {
 }
 
 export default function Desktop() {
-  const [data, setData] = useState<Downloads | null>(null);
+  const [data, setData] = useState<Downloads | null>(defaultDownloads as any);
   const [os, setOs] = useState<'windows' | 'linux' | 'mac' | 'other'>('other');
   const [installTab, setInstallTab] = useState<'windows' | 'linux' | 'mac'>('windows');
   const [started, setStarted] = useState<{ name: string; size: string; sha: string } | null>(null);
@@ -50,7 +51,7 @@ export default function Desktop() {
 
   useEffect(() => {
     setOs(detectOS());
-    fetch('/downloads/downloads.json').then(r => r.json()).then(setData).catch(() => setData(null));
+    fetch('https://examstudio.duckdns.org/downloads/downloads.json').then(r => r.json()).then(setData).catch(() => {});
   }, []);
 
   const platformFor = (name: string) => data?.platforms.find((p) => p.os === name) || null;
@@ -93,7 +94,7 @@ export default function Desktop() {
 
           {os !== 'mac' ? (
             <a
-              href={(os === 'linux' ? linux?.url : windows?.url) || '#'}
+              href={(os === 'linux' ? linux?.url : windows?.url) || undefined}
               download={(os === 'linux' ? linux?.file : windows?.file) || undefined}
               onClick={() => startDownload(os === 'linux' ? linux : windows)}
               className="btn btn-primary w-full"
@@ -109,7 +110,7 @@ export default function Desktop() {
           {mac?.status === 'coming-soon' ? null : null}
 
           <p className="text-xs mt-3 opacity-70">
-            If the download did not start, use <a className="underline" href={(os === 'linux' ? linux?.url : windows?.url) || '#'} download>Try again</a>.
+            If the download did not start, use <a className="underline" href={(os === 'linux' ? linux?.url : windows?.url) || undefined} download>Try again</a>.
           </p>
 
           {started ? (

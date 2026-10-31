@@ -1,0 +1,35 @@
+{
+  "version": "0.2.1",
+  "releaseDate": "2026-10-31",
+  "whatIsNew": "Electron desktop app, server address preconfigured, installer build.",
+  "platforms": [
+    {
+      "os": "windows",
+      "status": "available",
+      "file": "Exam-Studio-Setup-0.2.1.exe",
+      "label": "Windows installer (.exe)",
+      "sizeBytes": 179492746,
+      "sha256": "4319b6f6a14ce446c035f5b2a4d484e2c2f93dc5c4c73cc74410a3297c31f183",
+      "url": "/downloads/0.2.1/Exam-Studio-Setup-0.2.1.exe"
+    },
+    {
+      "os": "linux",
+      "status": "available",
+      "file": "Exam-Studio-0.2.1.zip",
+      "label": "Linux (portable .zip)",
+      "sizeBytes": 203418369,
+      "sha256": "df86d2c3775af9e464981f9e360ee9a5919aa64d64a7dfbc81c38710d0ec8c74",
+      "url": "/downloads/0.2.1/Exam-Studio-0.2.1.zip"
+    },
+    {
+      "os": "mac",
+      "status": "coming-soon",
+      "file": null,
+      "label": "Mac: coming soon",
+      "sizeBytes": null,
+      "sha256": null,
+      "url": null
+    }
+  ],
+  "previousVersions": []
+}
