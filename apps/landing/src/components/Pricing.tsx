@@ -21,7 +21,7 @@ export default function Pricing() {
       <div className="grid md:grid-cols-3 gap-5">
         {config.plans.map(p => (
           <div key={p.id} className={`card relative ${p.recommended ? 'ring-2 ring-[color:var(--c-accent)]' : ''}`}>
-            {p.recommended && <span className="absolute -top-3 left-6 text-xs px-2 py-1 rounded-full font-semibold" style={{ background: 'var(--c-accent)', color: 'var(--c-accent-ink)' }}>Recommended</span>}
+            {p.recommended && <span className="recommended-pill absolute -top-3 left-4">Recommended</span>}
             <h3 className="text-xl font-bold">{p.name}</h3>
             <div className="mt-3 text-3xl font-bold">{yearly ? p.priceYearly : p.priceMonthly}<span className="text-sm font-normal opacity-70">/{yearly ? 'yr' : 'mo'}</span></div>
             <ul className="mt-4 space-y-2 text-sm" style={{ color: 'var(--c-muted)' }}>

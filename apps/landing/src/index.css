@@ -1,3 +1,97 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --c-bg: #f6f3ec;
+  --c-panel: #fffefc;
+  --c-accent: #1f5c46;
+  --c-accent-ink: #ffffff;
+  --c-accent-dim: #14382b;
+  --c-line: #d8d2c5;
+  --c-muted: #374440;
+}
+.dark {
+  --c-bg: #151a17;
+  --c-panel: #1b201d;
+  --c-accent: #4fae8a;
+  --c-accent-dim: #8fd9b9;
+  --c-line: #2c332f;
+  --c-muted: #c2cbc6;
+}
+
+@layer base {
+  html {
+    @apply antialiased scroll-smooth;
+    color-scheme: light dark;
+  }
+  body {
+    background-color: var(--c-bg);
+    color: var(--c-muted);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .container-x {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  .section {
+    @apply py-20 sm:py-24;
+  }
+  .section-lg {
+    @apply py-24 sm:py-28 min-h-[70vh] flex items-center;
+  }
+  .heading {
+    @apply text-3xl sm:text-4xl font-bold tracking-tight;
+    color: var(--c-accent-dim);
+  }
+  .sub {
+    @apply max-w-2xl text-base sm:text-lg;
+    color: var(--c-muted);
+  }
+  .card {
+    @apply rounded-2xl border p-6 shadow-sm transition-colors duration-200;
+    background-color: var(--c-panel);
+    border-color: var(--c-line);
+    overflow: visible;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold transition;
+  }
+  .btn-primary {
+    background-color: var(--c-accent);
+    color: var(--c-accent-ink);
+  }
+  .btn-ghost {
+    border: 1px solid var(--c-line);
+    background-color: transparent;
+    color: var(--c-accent);
+  }
+  .btn-small {
+    @apply text-xs px-3 py-1.5 rounded-xl;
+  }
+  .dark .btn-primary:hover {
+    opacity: 0.9;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
+    background-color: var(--c-accent);
+    color: var(--c-accent-ink);
+  }
+  .recommended-pill {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    background-color: var(--c-accent);
+    color: var(--c-accent-ink);
+  }
+  .outline-none {}
+  .truncate {}
+  .prose {
+    line-height: 1.6;
+  }
+}
