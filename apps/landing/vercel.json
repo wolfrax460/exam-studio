@@ -2,6 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/admin", "destination": "https://examstudio.duckdns.org/admin" },
+    { "source": "/admin/:path*", "destination": "https://examstudio.duckdns.org/admin/:path*" },
     { "source": "/app", "destination": "https://examstudio.duckdns.org/app" },
     { "source": "/app/:path*", "destination": "https://examstudio.duckdns.org/app/:path*" },
     { "source": "/assets/:path*", "destination": "https://examstudio.duckdns.org/assets/:path*" },
