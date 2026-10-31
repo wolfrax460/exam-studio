@@ -41,6 +41,11 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
+  const [showTokens, setShowTokens] = useState(false);
+  const [tokens, setTokens] = useState([]);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [newToken, setNewToken] = useState(null);
+  const [tokenBusy, setTokenBusy] = useState(false);
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('examStudioTheme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch { return 'light'; }
   });
@@ -163,6 +168,39 @@ export default function App() {
   }
 
   const refreshHealth = (h) => { if (h) setHealth(h); };
+
+  // ---------------------------------------------------------------- API tokens
+  const loadTokens = () => get('/api/tokens')
+    .then((d) => setTokens(Array.isArray(d?.items) ? d.items : []))
+    .catch(() => setTokens([]));
+
+  const createToken = async () => {
+    if (!newTokenName.trim()) return setError('Give the token a name.');
+    setError('');
+    setTokenBusy(true);
+    try {
+      const created = await post('/api/tokens', { name: newTokenName.trim(), scopes: ['generate:write', 'library:read', 'library:write', 'export:read'], expiresInDays: 90 });
+      setNewToken(created.token);
+      setNewTokenName('');
+      setTokens([...tokens, { ...created, token: created.token }]);
+      flash('API token created — copy it now, it is shown only once.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const revokeToken = async (id) => {
+    setError('');
+    try {
+      await del(`/api/tokens/${id}`);
+      setTokens(tokens.filter((t) => t.id !== id));
+      flash('Token revoked.');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   // ---------------------------------------------------------------- work
   async function run(label, fn) {
@@ -322,6 +360,7 @@ export default function App() {
               <span className="who" title={user.email}>{user.name || user.email}</span>
               <button type="button" onClick={() => setShowSettings(true)}>Settings</button>
               <button type="button" onClick={() => setShowAgents(true)}>Agents</button>
+              <button type="button" onClick={() => { setShowTokens(true); loadTokens(); }}>API Tokens</button>
               {user?.role === 'admin' && <button type="button" onClick={() => window.location.assign('/admin')}>Admin</button>}
               <button type="button" onClick={handleLogout}>Sign out</button>
             </div>
@@ -624,6 +663,51 @@ export default function App() {
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} onChanged={refreshHealth} update={update} onUpdate={setUpdate} />}
       {showAgents && <Agents onClose={() => setShowAgents(false)} onOpenSettings={() => { setShowAgents(false); setShowSettings(true); }} />}
+      {showTokens && (
+        <div className="modal">
+          <div className="modal-card">
+            <h2>API Tokens</h2>
+            <p className="hint">Personal access tokens (PATs) starting with <code>est_</code> let Claude, ChatGPT, DeepSeek and other tools call Exam Studio. Copy a token when it is created — it is shown only once.</p>
+
+            <div className="settings">
+              <label className="field grow">
+                <span>New token name</span>
+                <input value={newTokenName} onChange={(e) => setNewTokenName(e.target.value)} placeholder="e.g. Claude Desktop" />
+              </label>
+              <button className="primary" disabled={tokenBusy || !newTokenName.trim()} onClick={createToken}>{tokenBusy ? 'Creating…' : 'Create token'}</button>
+            </div>
+
+            {newToken && (
+              <div className="settings">
+                <label className="field grow">
+                  <span>Copy this token (shown once)</span>
+                  <input className="mono" readOnly value={newToken} onClick={(e) => { e.target.select(); document.execCommand('copy'); flash('Token copied.'); }} />
+                </label>
+                <button className="link" onClick={() => setNewToken(null)}>Dismiss</button>
+              </div>
+            )}
+
+            <h3>Existing tokens</h3>
+            {tokens.length === 0 ? <p className="hint">No tokens yet. Create one above.</p> : (
+              <table className="handout-table">
+                <thead><tr><th>Name</th><th>Scopes</th><th>Created</th><th>Revoked</th><th></th></tr></thead>
+                <tbody>
+                  {tokens.map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.name}</td>
+                      <td><span className="mono">{Array.isArray(t.scopes) ? t.scopes.join(', ') : (t.scopes || '')}</span></td>
+                      <td>{t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}</td>
+                      <td>{t.revoked ? <span className="warn">revoked</span> : 'active'}</td>
+                      <td>{!t.revoked && <button className="link danger" onClick={() => revokeToken(t.id)}>Revoke</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <button className="link" onClick={() => setShowTokens(false)}>Done</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

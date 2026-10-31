@@ -26,3 +26,4 @@ server/data/store.json
 server/samples/
 
 .vercel
+.env*

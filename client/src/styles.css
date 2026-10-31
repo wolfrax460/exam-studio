@@ -375,3 +375,12 @@ html[data-theme="light"] {
 .admin-field .help { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .admin-field input[type="checkbox"] { margin-right: 6px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--accent); color: var(--accent-ink); }
+
+/* Tokens modal */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 55; }
+.modal-card { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 720px; width: 95vw; max-height: 90vh; overflow: auto; }
+.modal-card h2 { margin-top: 0; }
+.modal-card h3 { margin-top: 16px; font-size: 16px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
+button.danger { background: transparent; color: var(--err-ink); border: 1px solid var(--err-ink); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+button.danger:hover { background: var(--err-ink); color: #fff; }

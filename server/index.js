@@ -456,23 +456,24 @@ app.get('/api/v1/library', wrap(async (req, res) => { const items = await listIt
 app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = String(req.query.text || ''); const structure = detectStructure(text, req.query.title); res.json({ structure }); }));
 
 // Remote MCP (streamable HTTP) - session-aware, shares tools with the stdio server.
-// A single McpServer instance is shared across all transports; each HTTP session gets
-// its own StreamableHTTPServerTransport. PATs (est_...) and session JWTs are accepted.
-const mcpServer = createMcpServer();
+// Each HTTP session gets its own StreamableHTTPServerTransport + McpServer instance.
+// PATs (est_...) and session JWTs are accepted.
 const mcpTransports = new Map(); // sessionId -> StreamableHTTPServerTransport
-function mcpTransportFor(sessionId) {
-  if (sessionId && mcpTransports.has(sessionId)) return mcpTransports.get(sessionId);
+function createTransport(sessionId) {
+  const sessionIdFinal = sessionId || crypto.randomUUID();
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => sessionId || crypto.randomUUID(),
+    sessionIdGenerator: () => sessionIdFinal,
     onsessionclosed: (id) => { mcpTransports.delete(String(id)); },
   });
-  if (sessionId) mcpTransports.set(String(sessionId), transport);
-  mcpServer.connect(transport);
+  const server = createMcpServer();
+  server.connect(transport);
+  mcpTransports.set(sessionIdFinal, transport);
   return transport;
 }
 app.post('/mcp', wrap(async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] || req.query.session_id;
-  const transport = mcpTransportFor(sessionId);
+  let transport = sessionId && mcpTransports.get(String(sessionId));
+  if (!transport) transport = createTransport(sessionId);
   await transport.handleRequest(req, res, req.body);
 }));
 
