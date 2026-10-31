@@ -4,8 +4,8 @@ export type FaqItem = { q: string; a: string };
 export const config = {
   brand: { name: 'Exam Studio' },
   links: {
-    openApp: `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100'}/app`,
-    github: 'https://github.com/wolfrax460/exam-studio',
+    openApp: '/app',
+    backendStatus: '/api/health',    github: 'https://github.com/wolfrax460/exam-studio',
     releases: 'https://github.com/wolfrax460/exam-studio/releases',
     contact: 'hello@examstudio.app'
   },

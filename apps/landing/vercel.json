@@ -1,6 +1,12 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/app", "destination": "https://examstudio.duckdns.org/app" },
+    { "source": "/app/:path*", "destination": "https://examstudio.duckdns.org/app/:path*" },
+    { "source": "/assets/:path*", "destination": "https://examstudio.duckdns.org/assets/:path*" },
+    { "source": "/api/:path*", "destination": "https://examstudio.duckdns.org/api/:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
