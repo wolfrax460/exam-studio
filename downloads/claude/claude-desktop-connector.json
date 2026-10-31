@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "exam-studio": {
+      "url": "https://examstudio.duckdns.org/mcp",
+      "headers": {
+        "Authorization": "Bearer es_live_YOUR_TOKEN_HERE"
+      }
+    }
+  }
+}

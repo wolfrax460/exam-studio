@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import mammoth from 'mammoth';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
-import { ocrPdf } from './extract.js';
+import { ocrPdf, decodeBuffer } from './extract.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const NOTES_DIR = path.resolve(here, '..', '..', 'notes');
@@ -93,7 +93,7 @@ async function parseFile(fullPath, name) {
     pages = [text];
     charCount = text.length;
   } else {
-    const text = buffer.toString('utf8');
+    const text = decodeBuffer(buffer);
     pages = [text];
     charCount = text.length;
   }

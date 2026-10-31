@@ -32,8 +32,8 @@ import { requireAdmin } from './lib/auth.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
+import { createMcpServer } from './lib/mcpServer.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
 
@@ -56,6 +56,15 @@ if (process.env.CORS_ORIGIN) app.use(cors({ origin: process.env.CORS_ORIGIN.spli
 // A handout is planned from a whole trainee's manual, which runs to about 600,000 characters
 // before JSON escaping.
 app.use(express.json({ limit: '4mb' }));
+// Always emit JSON as UTF-8 so dashes and accents never mojibake on the wire.
+app.use((_req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    res.type('application/json; charset=utf-8');
+    return json(body);
+  };
+  next();
+});
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -364,7 +373,74 @@ app.post('/api/auth/reset-password', wrap(async (req, res) => {
   await user.save();
   res.json({ message: 'Password reset successfully. You can now sign in.' });
 }));
-const OPENAPI_SPEC = { openapi: '3.1.0', info: { title: 'Exam Studio API', version: '0.2.1' }, paths: { '/api/v1/public/plans': { get: { summary: 'List public plans' } } } };
+const OPENAPI_SPEC = {
+  openapi: '3.1.0',
+  info: { title: 'Exam Studio API', version: '0.2.1', description: 'Turn course notes into study notes, handouts, exams and flashcards.' },
+  servers: [{ url: 'https://examstudio.duckdns.org', description: 'Production' }],
+  tags: [
+    { name: 'auth', description: 'Sign in, sign out, tokens' },
+    { name: 'generate', description: 'AI generation: notes, flashcards, exams, handouts' },
+    { name: 'library', description: 'Saved notes, exams, flashcards, handouts' },
+    { name: 'mcp', description: 'Model Context Protocol (Streamable HTTP)' },
+    { name: 'health', description: 'Health checks' },
+  ],
+  paths: {
+    '/api/v1/openapi.json': { get: { summary: 'OpenAPI specification', tags: ['health'] } },
+    '/health/ai': { get: { summary: 'AI health check', tags: ['health'] } },
+    '/api/v1/public/plans': {
+      get: { summary: 'List public plans', tags: ['auth'], responses: { 200: { description: 'Plans list' } } },
+    },
+    '/api/v1/me/quota': {
+      get: { summary: 'User plan and usage', tags: ['auth'], security: [{ bearerAuth: [] }], responses: { 200: { description: 'Plan and usage' } } },
+    },
+    '/api/v1/generate/notes': {
+      post: {
+        summary: 'Generate study notes from text',
+        tags: ['generate'],
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' }, title: { type: 'string' }, focus: { type: 'string' } }, required: ['text'] } } } },
+        responses: { 200: { description: 'Study notes' }, 429: { description: 'Daily limit reached' } },
+      },
+    },
+    '/api/v1/generate/flashcards': {
+      post: {
+        summary: 'Generate flashcards from text',
+        tags: ['generate'],
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' }, title: { type: 'string' }, count: { type: 'integer' } }, required: ['text'] } } } },
+        responses: { 200: { description: 'Flashcards' }, 429: { description: 'Daily limit reached' } },
+      },
+    },
+    '/api/v1/generate/exam': {
+      post: {
+        summary: 'Generate an exam from text',
+        tags: ['generate'],
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' }, title: { type: 'string' }, level: { type: 'string' }, types: { type: 'array', items: { type: 'string' } }, totalMarks: { type: 'integer' }, layout: { type: 'string' } }, required: ['text'] } } } },
+        responses: { 200: { description: 'Exam' }, 429: { description: 'Daily limit reached' } },
+      },
+    },
+    '/api/v1/generate/handout': {
+      post: {
+        summary: 'Generate a study handout from text',
+        tags: ['generate'],
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' }, title: { type: 'string' }, level: { type: 'string' } }, required: ['text'] } } } },
+        responses: { 200: { description: 'Study handout' }, 429: { description: 'Daily limit reached' } },
+      },
+    },
+    '/api/v1/library': {
+      get: { summary: 'List library items', tags: ['library'], security: [{ bearerAuth: [] }], responses: { 200: { description: 'Library items' } } },
+      post: { summary: 'Save a library item', tags: ['library'], security: [{ bearerAuth: [] }], responses: { 201: { description: 'Created' } } },
+    },
+    '/mcp': { post: { summary: 'MCP Streamable HTTP endpoint', tags: ['mcp'], security: [{ bearerAuth: [] }], responses: { 200: { description: 'MCP response or event stream' } } } },
+  },
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'PAT (est_...) or session JWT from /api/auth/login' },
+    },
+  },
+};
 
 // ---------------------------------------------------------------- public API v1 (PAT or session)
 app.get('/api/v1/public/plans', wrap(async (_req, res) => {
@@ -379,41 +455,173 @@ app.get('/api/v1/me/quota', wrap(async (req, res) => { res.json(await admin.getU
 app.get('/api/v1/library', wrap(async (req, res) => { const items = await listItems(req.user.id); res.json({ items }); }));
 app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = String(req.query.text || ''); const structure = detectStructure(text, req.query.title); res.json({ structure }); }));
 
-// Remote MCP (streamable HTTP) - minimal stateless endpoint
+// Remote MCP (streamable HTTP) - session-aware, shares tools with the stdio server.
+// A single McpServer instance is shared across all transports; each HTTP session gets
+// its own StreamableHTTPServerTransport. PATs (est_...) and session JWTs are accepted.
+const mcpServer = createMcpServer();
+const mcpTransports = new Map(); // sessionId -> StreamableHTTPServerTransport
+function mcpTransportFor(sessionId) {
+  if (sessionId && mcpTransports.has(sessionId)) return mcpTransports.get(sessionId);
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => sessionId || crypto.randomUUID(),
+    onsessionclosed: (id) => { mcpTransports.delete(String(id)); },
+  });
+  if (sessionId) mcpTransports.set(String(sessionId), transport);
+  mcpServer.connect(transport);
+  return transport;
+}
 app.post('/mcp', wrap(async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = new McpServer({ name: 'exam-studio', version: '0.2.1' });
-  await server.connect(transport);
+  const sessionId = req.headers['mcp-session-id'] || req.query.session_id;
+  const transport = mcpTransportFor(sessionId);
   await transport.handleRequest(req, res, req.body);
+}));
+
+// ---------------------------------------------------------------- OAuth 2.1 + PKCE (for MCP clients)
+// Authorization codes are short-lived and single-use. PKCE prevents authorization code
+// interception on public clients. Tokens are PATs (est_...) hashed like API tokens.
+const oauthCodes = new Map(); // code -> { userId, clientId, redirectUri, codeChallenge, expiresAt }
+const oauthClients = new Map(); // clientId -> { clientSecret, redirectUris, name }
+const OAUTH_CODE_TTL_MS = 10 * 60 * 1000;
+
+function base64url(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function generateCodeVerifier() { return base64url(crypto.randomBytes(32)); }
+function codeChallenge(verifier) { return base64url(crypto.createHash('sha256').update(verifier).digest()); }
+
+// Dynamic client registration - MCP clients that need it can register here.
+app.post('/oauth/register', wrap(async (req, res) => {
+  const { client_name, redirect_uris, token_endpoint_auth_method } = req.body || {};
+  if (!Array.isArray(redirect_uris) || !redirect_uris.length) throw httpError(400, 'redirect_uris is required.');
+  const clientId = `est_client_${crypto.randomBytes(16).toString('hex')}`;
+  const clientSecret = token_endpoint_auth_method === 'none' ? '' : crypto.randomBytes(24).toString('hex');
+  oauthClients.set(clientId, { clientSecret, redirectUris: redirect_uris, name: client_name || 'Exam Studio MCP client', createdAt: new Date().toISOString() });
+  res.status(201).json({ client_id: clientId, client_secret: clientSecret, redirect_uris, token_endpoint_auth_method, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] });
+}));
+
+app.get('/oauth/authorize', wrap(async (req, res) => {
+  const { response_type, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method } = req.query;
+  if (response_type !== 'code') throw httpError(400, 'Only authorization_code flow is supported.');
+  const client = oauthClients.get(String(client_id));
+  if (!client) throw httpError(400, 'Unknown client_id.');
+  if (!client.redirectUris.includes(String(redirect_uri))) throw httpError(400, 'redirect_uri not registered for this client.');
+  if (code_challenge_method !== 'S256') throw httpError(400, 'code_challenge_method must be S256.');
+  if (!code_challenge) throw httpError(400, 'code_challenge is required (PKCE).');
+
+  // The user must already be signed in (JWT or PAT) to authorize.
+  const authHeader = req.headers.authorization || '';
+  const token = /^Bearer\s+(.+)$/i.exec(authHeader.trim())?.[1]?.trim() || authHeader.trim();
+  let userId;
+  if (token.startsWith('est_')) {
+    const info = await admin.verifyPatToken(token);
+    if (!info) return res.status(401).json({ error: 'invalid_token' });
+    userId = info.userId;
+  } else if (token) {
+    try {
+      const decoded = await import('./lib/auth.js').then((m) => m.verifyToken(token));
+      userId = decoded.sub || decoded.userId;
+    } catch { return res.status(401).json({ error: 'invalid_token' }); }
+  } else {
+    return res.status(401).json({ error: 'login_required' });
+  }
+
+  const code = `est_oauth_${crypto.randomBytes(24).toString('hex')}`;
+  oauthCodes.set(code, {
+    userId, clientId: String(client_id), redirectUri: String(redirect_uri),
+    codeChallenge: String(code_challenge), scope: String(scope || ''),
+    state: String(state || ''), expiresAt: Date.now() + OAUTH_CODE_TTL_MS,
+  });
+  const redirect = new URL(String(redirect_uri));
+  redirect.searchParams.set('code', code);
+  if (state) redirect.searchParams.set('state', String(state));
+  res.redirect(redirect.toString());
+}));
+
+app.post('/oauth/token', wrap(async (req, res) => {
+  const { grant_type, code, redirect_uri, client_id, client_secret, code_verifier, refresh_token } = req.body || {};
+
+  if (grant_type === 'authorization_code') {
+    if (!code || !redirect_uri || !code_verifier) throw httpError(400, 'code, redirect_uri and code_verifier are required.');
+    const entry = oauthCodes.get(String(code));
+    if (!entry) throw httpError(400, 'invalid_grant');
+    if (Date.now() > entry.expiresAt) { oauthCodes.delete(String(code)); throw httpError(400, 'invalid_grant'); }
+    oauthCodes.delete(String(code)); // single-use
+    const client = oauthClients.get(entry.clientId);
+    if (client && client.clientSecret && client.clientSecret !== client_secret) throw httpError(401, 'invalid_client');
+    if (entry.redirectUri !== String(redirect_uri)) throw httpError(400, 'invalid_grant');
+    const expectedChallenge = codeChallenge(String(code_verifier));
+    if (expectedChallenge !== entry.codeChallenge) throw httpError(400, 'invalid_grant');
+
+    const raw = `est_pat_${crypto.randomBytes(32).toString('hex')}`;
+    const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+    const expiresAt = new Date(Date.now() + 90 * 86400000); // 90 days
+    const scopes = (entry.scope || 'read').split(/\s+/).filter(Boolean);
+    await admin.createToken(entry.userId, { name: `OAuth client ${client_id}`, scopes, expiresInDays: 90 });
+    // Override the token hash with our raw-derived one (createToken generates its own; we store the PAT)
+    // createToken returns `est_<raw>`, we need to use our raw as the token value.
+    // Simplest: create the token then we cannot control its value. Instead, return `raw` as the access_token
+    // and store the hash manually.
+    const { Token } = await import('./lib/models/Token.js');
+    await initStorage();
+    await Token.create({ userId: entry.userId, tokenHash, scopes, expiresAt, name: `OAuth client ${client_id}`, oauthClientId: client_id });
+    res.json({ access_token: raw, token_type: 'Bearer', expires_in: 90 * 86400, scope: scopes.join(' '), refresh_token: raw });
+  } else if (grant_type === 'refresh_token') {
+    if (!refresh_token) throw httpError(400, 'refresh_token is required.');
+    const hash = crypto.createHash('sha256').update(String(refresh_token)).digest('hex');
+    const { Token } = await import('./lib/models/Token.js');
+    await initStorage();
+    const doc = await Token.findOne({ tokenHash: hash }).lean();
+    if (!doc || doc.revoked) throw httpError(400, 'invalid_grant');
+    const raw = `est_pat_${crypto.randomBytes(32).toString('hex')}`;
+    const newHash = crypto.createHash('sha256').update(raw).digest('hex');
+    await Token.updateOne({ _id: doc._id }, { tokenHash: newHash, expiresAt: new Date(Date.now() + 90 * 86400000) });
+    res.json({ access_token: raw, token_type: 'Bearer', expires_in: 90 * 86400, scope: doc.scopes.join(' '), refresh_token: raw });
+  } else {
+    throw httpError(400, 'unsupported_grant_type');
+  }
 }));
 
 app.post('/api/v1/generate/notes', wrap(async (req, res) => {
   const text = notesFrom(req.body);
   await admin.enforceLimits(req.user.id, 'notes', text);
-  const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
-  await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true });
-  res.json(notes);
+  const started = Date.now();
+  try {
+    const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+    admin.recordAISuccess(Date.now() - started);
+    await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true });
+    res.json(notes);
+  } catch (e) { admin.recordAIFailure(e); throw e; }
 }));
 app.post('/api/v1/generate/flashcards', wrap(async (req, res) => {
   const text = notesFrom(req.body);
   await admin.enforceLimits(req.user.id, 'flashcards', text);
-  const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
-  await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true });
-  res.json(cards);
+  const started = Date.now();
+  try {
+    const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+    admin.recordAISuccess(Date.now() - started);
+    await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true });
+    res.json(cards);
+  } catch (e) { admin.recordAIFailure(e); throw e; }
 }));
 app.post('/api/v1/generate/exam', wrap(async (req, res) => {
   const text = notesFrom(req.body);
   await admin.enforceLimits(req.user.id, 'exam', text);
-  const exam = await generateExam({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), types: Array.isArray(req.body?.types) ? req.body.types : ['mcq'], totalMarksTarget: int(req.body?.totalMarks, 100, 10, 200) });
-  await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true });
-  res.json(exam);
+  const started = Date.now();
+  try {
+    const exam = await generateExam({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), types: Array.isArray(req.body?.types) ? req.body.types : ['mcq'], totalMarksTarget: int(req.body?.totalMarks, 100, 10, 200) });
+    admin.recordAISuccess(Date.now() - started);
+    await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true });
+    res.json(exam);
+  } catch (e) { admin.recordAIFailure(e); throw e; }
 }));
 app.post('/api/v1/generate/handout', wrap(async (req, res) => {
   const text = notesFrom(req.body);
   await admin.enforceLimits(req.user.id, 'handout', text);
-  const handout = await generateHandout({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), includeRevision: req.body?.includeRevision !== false, includePractical: req.body?.includePractical !== false });
-  await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(text.length / 4), success: true });
-  res.json(handout);
+  const started = Date.now();
+  try {
+    const handout = await generateHandout({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), includeRevision: req.body?.includeRevision !== false, includePractical: req.body?.includePractical !== false });
+    admin.recordAISuccess(Date.now() - started);
+    await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(text.length / 4), success: true });
+    res.json(handout);
+  } catch (e) { admin.recordAIFailure(e); throw e; }
 }));
 
 // ---------------------------------------------------------------- protected routes
@@ -499,17 +707,23 @@ app.post('/api/notes/detect-structure', wrap(async (req, res) => {
 app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (req.user) { await admin.enforceLimits(req.user.id, 'notes', text); }
-  const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
-  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
-  res.json(notes);
+  const started = Date.now();
+  try {
+    const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+    if (req.user) { admin.recordAISuccess(Date.now() - started); await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
+    res.json(notes);
+  } catch (e) { if (req.user) admin.recordAIFailure(e); throw e; }
 }));
 
 app.post('/api/flashcards/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (req.user) { await admin.enforceLimits(req.user.id, 'flashcards', text); }
-  const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
-  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
-  res.json(cards);
+  const started = Date.now();
+  try {
+    const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+    if (req.user) { admin.recordAISuccess(Date.now() - started); await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
+    res.json(cards);
+  } catch (e) { if (req.user) admin.recordAIFailure(e); throw e; }
 }));
 
 app.post('/api/exams/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
@@ -524,27 +738,33 @@ app.post('/api/exams/generate', generateLimit, optionalAuthenticateUser, wrap(as
   };
 
   if (layout === 'sections-a-e') {
-    const exam = await generateExam({
-      ...common,
-      moduleCode: s(req.body?.moduleCode, 24),
-      trade: s(req.body?.trade, 120),
-      school: s(req.body?.school, 120),
-      duration: s(req.body?.duration, 40),
-      sectionPlan: Array.isArray(req.body?.sectionPlan) ? req.body.sectionPlan : undefined,
-    });
-    if (DEMO) { exam.warnings = validateExam(exam, totalMarksTarget); exam.totalMarks = totalMarks(exam); }
-    if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
-    return res.json(exam);
+    const started = Date.now();
+    try {
+      const exam = await generateExam({
+        ...common,
+        moduleCode: s(req.body?.moduleCode, 24),
+        trade: s(req.body?.trade, 120),
+        school: s(req.body?.school, 120),
+        duration: s(req.body?.duration, 40),
+        sectionPlan: Array.isArray(req.body?.sectionPlan) ? req.body.sectionPlan : undefined,
+      });
+      if (DEMO) { exam.warnings = validateExam(exam, totalMarksTarget); exam.totalMarks = totalMarks(exam); }
+      if (req.user) { admin.recordAISuccess(Date.now() - started); await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
+      return res.json(exam);
+    } catch (e) { if (req.user) admin.recordAIFailure(e); throw e; }
   }
 
   // The old flat paper still takes a list of question types.
   const types = (Array.isArray(req.body?.types) ? req.body.types : []).filter((t) => t in QUESTION_TYPES);
   if (!types.length) throw httpError(400, 'Choose at least one question type.');
   const essayCount = types.includes('essay') ? int(req.body?.essayCount, 2, 1, 4) : 0;
-  const exam = await generateExam({ ...common, types, essayCount });
-  if (DEMO) { exam.warnings = validateExam(exam, null); exam.totalMarks = totalMarks(exam); }
-  if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
-  res.json(exam);
+  const started2 = Date.now();
+  try {
+    const exam = await generateExam({ ...common, types, essayCount });
+    if (DEMO) { exam.warnings = validateExam(exam, null); exam.totalMarks = totalMarks(exam); }
+    if (req.user) { admin.recordAISuccess(Date.now() - started2); await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); }
+    res.json(exam);
+  } catch (e) { if (req.user) admin.recordAIFailure(e); throw e; }
 }));
 
 // ---------------------------------------------------------------- export
@@ -658,6 +878,7 @@ app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, wrap
   const job = jobId ? { userId: req.userId, steps: [], startedAt: Date.now(), done: false } : null;
   if (job) handoutJobs.set(jobId, job);
   try {
+    const started = Date.now();
     const handout = await generateHandout({
       text: handoutText,
       title: s(req.body?.title, 120),
@@ -668,9 +889,10 @@ app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, wrap
       onProgress: (step) => rememberHandoutStep(jobId, req.userId, step),
       shouldCancel: () => Boolean(handoutJobs.get(jobId)?.cancelled),
     });
-    if (req.user) { await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(handoutText.length / 4), success: true }); }
+    if (req.user) { admin.recordAISuccess(Date.now() - started); await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(handoutText.length / 4), success: true }); }
     res.json(handout);
-  } finally {
+  } catch (e) { if (req.user) admin.recordAIFailure(e); throw e; }
+  finally {
     const finished = jobId && handoutJobs.get(jobId);
     if (finished) finished.done = true;
   }
@@ -1050,11 +1272,28 @@ app.get('/api/admin/health', ...adminGuard, wrap(async (_req, res) => {
 app.get('/api/admin/system', ...adminGuard, wrap(async (_req, res) => {
   res.json(await admin.systemInfo());
 }));
+app.get('/api/admin/ai-health', ...adminGuard, wrap(async (_req, res) => {
+  res.json(admin.getAIHealth());
+}));
 app.post('/api/admin/diagnostics', ...adminGuard, wrap(async (req, res) => {
   const id = s(req.body?.id, 40);
   const result = await admin.runDiagnostic(id);
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'diagnostic.run', targetType: 'diagnostic', targetId: id, after: result });
   res.json(result);
+}));
+
+// Public AI health check - fails quietly for visitors (no provider internals exposed).
+app.get('/health/ai', wrap(async (_req, res) => {
+  let ok = false, latency = null, error = null;
+  const started = Date.now();
+  try {
+    await pingProvider();
+    ok = true;
+    latency = Date.now() - started;
+  } catch (e) {
+    error = e.status >= 500 ? 'unavailable' : 'error';
+  }
+  res.json({ ok, latency, ...(error ? { error } : {}) });
 }));
 
 // User quota meter
@@ -1076,15 +1315,31 @@ app.get('/api/me/quota', authenticateUser, wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- downloads and client + errors
 const downloadsDir = path.resolve(__dirname, '../downloads');
-if (fs.existsSync(downloadsDir)) app.use('/downloads', express.static(downloadsDir, { fallthrough: true }));
+const VERCEL_ORIGIN = 'https://exams-studio.vercel.app';
+if (fs.existsSync(downloadsDir)) {
+  // Custom download handler: CORS for the landing origin on JSON only, attachment disposition on zips.
+  app.use('/downloads', (req, res, next) => {
+    const file = path.join(downloadsDir, req.path.slice('/downloads'.length));
+    fs.stat(file, (err, st) => {
+      if (err || !st.isFile()) return next();
+      res.set('Cache-Control', 'public, max-age=86400');
+      const isJson = file.endsWith('.json');
+      const isZip = file.endsWith('.zip');
+      if (isJson) res.set('Access-Control-Allow-Origin', VERCEL_ORIGIN);
+      if (isZip) res.set('Content-Disposition', `attachment; filename="${path.basename(file)}"`);
+      res.sendFile(file);
+    });
+  });
+}
+app.use('/downloads', (_req, _res, next) => next(httpError(404, 'Not found.')));
+app.use('/mcp', (_req, _res, next) => next(httpError(404, 'Remote MCP is not available yet.')));
+app.use('/api', (_req, _res, next) => next(httpError(404, 'Not found.')));
 
 const dist = path.resolve(__dirname, '../client/dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
-  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+  app.get(/^\/(?!api\/|downloads\/|mcp\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
-
-app.use('/api', (_req, _res, next) => next(httpError(404, 'Not found.')));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
@@ -1099,7 +1354,7 @@ app.use((err, _req, res, _next) => {
 
   const status = err.status || 500;
   if (status >= 500) console.error(err);
-  res.status(status).json({ error: status >= 500 && !err.status ? 'Something went wrong on the server.' : err.message });
+  res.status(status).type('application/json; charset=utf-8').json({ error: status >= 500 && !err.status ? 'Something went wrong on the server.' : err.message });
 });
 
 export { app };

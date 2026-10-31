@@ -118,7 +118,36 @@ Settings are stored server-side in `server/data/settings.json` and win over `.en
 
 Exam Studio is also an MCP server, so Claude Desktop, Claude Code, Codex, OpenCode and Gemini CLI can read your notes, write an exam or a study handout, check it and export Word/PDF/CSV files. The **Agents** button shows the exact snippet to paste, with the right paths for this computer and installation.
 
+### Remote MCP (Streamable HTTP)
+
+A remote MCP server is available at `https://examstudio.duckdns.org/mcp` (Streamable HTTP). It reuses the same REST API logic, tools, daily limits and scopes as the local MCP server.
+
+**Authentication**: OAuth 2.1 authorization code with PKCE (`/oauth/authorize`, `/oauth/token`) plus personal access tokens (PATs) sent as `Authorization: Bearer est_...` for clients that support custom headers. Tokens are hashed, scoped, and revocable from account settings.
+
+**Client configs** (absolute URLs, no `$VARS`):
+
+- **Claude Desktop / opencode / Cursor**: add `https://examstudio.duckdns.org/mcp` as a custom MCP connector with header `Authorization: Bearer es_live_YOUR_PERSONAL_ACCESS_TOKEN`.
+- **Connector configs**: download from `https://examstudio.duckdns.org/downloads/claude/`.
+
+**MCP inspector**: `npx @modelcontextprotocol/inspector` against `https://examstudio.duckdns.org/mcp` with a Bearer PAT.
+
+### Integrations (downloadable packages)
+
+From `https://examstudio.duckdns.org/downloads/integrations/0.2.1/`:
+
+| Package | What it is |
+|---|---|
+| `exam-studio-skill-0.2.1.zip` | Claude skill: SKILL.md with workflow, marking-scheme rules, tool definitions, worked examples |
+| `exam-studio-plugin-0.2.1.zip` | Claude plugin: skill + remote MCP connector config + slash commands `/exam`, `/notes`, `/handout`, `/flashcards`, `/usage` |
+| `tools.json` | OpenAI-compatible function/tool definitions (DeepSeek, NVIDIA, OpenRouter, Groq, any OpenAI-compatible model) |
+| `openapi.json` (ChatGPT) | Trimmed OpenAPI 3.1 schema for Custom GPT Actions (generate + library endpoints only) |
+
+Checksums are in `https://examstudio.duckdns.org/downloads/downloads.json` (CORS-enabled for `https://exams-studio.vercel.app`).
+
+### Local MCP (stdio)
+
 The handout tools are `exam_studio_generate_handout`, `exam_studio_check_handout` and `exam_studio_export_handout`; `exam_studio_format_guide` documents the full handout shape so an agent can also write one by hand.
+
 
 ## Files
 
@@ -142,7 +171,18 @@ client/src/Settings.jsx, Agents.jsx  the dialogs
 electron/main.js       desktop shell (npm run desktop, needs electron installed)
 ```
 
-## Keeping up to date
+## AI health and errors
+
+- **`GET /health/ai`** — public AI health check. Returns `{ ok, latency }` or `{ ok: false, error }` without exposing provider internals. Fails quietly for visitors.
+- **`GET /api/admin/ai-health`** — admin-only: last success time, last error, last latency.
+- **Precise error codes** (user-safe, provider details logged server-side without note content):
+  - `daily_limit_reached` — with reset time and `Retry-After`
+  - `ai_rate_limited` — "try again in N seconds"
+  - `ai_unavailable` — key rejected, no balance, model/address not recognised
+  - `input_too_large` — source exceeds plan limit
+  - `generation_timed_out` — provider took too long
+- Transient `429`/`5xx` provider errors are retried once with backoff before surfacing to the user.
+
 
 Exam Studio checks whether a newer version exists **at most once every 24 hours**, and tells you: a banner in the app, and in the desktop build a dialog you see once per new version. A failed check is recorded and otherwise ignored — the app never blocks on it and works offline.
 
@@ -160,12 +200,14 @@ Versions are compared as `major.minor.patch`. A `v` prefix is allowed, so `0.2.0
 ## Security notes
 
 - API keys stay on the server. The browser never sees them, and a saved key is never sent back — only whether one exists.
+- Personal Access Tokens (PATs, `est_...`) are SHA-256 hashed, scoped, and revocable. `Authorization` headers are redacted in logs.
 - The JWT secret comes from `JWT_SECRET`. If it is unset in development the server generates a random one and saves it next to the data files; it refuses to start with a placeholder secret when `NODE_ENV=production`. There is no shared default secret.
-- Your notes are sent to the AI provider you choose. Do not paste student names, marks or other personal data into the notes box.
-- Every generation costs money. Generation is limited to 30 per hour per address (`GENERATE_LIMIT_PER_HOUR`).
+- Your notes are sent to the AI provider you choose. Do not paste student names, marks or other personal data into the notes box. Note content is never logged.
+- Every generation costs money. Generation is limited to 30 per hour per address (`GENERATE_LIMIT_PER_HOUR`), plus per-user daily limits from plans.
 - Uploads are limited to 15 MB and to `.pdf`, `.docx`, `.txt` and `.md`. Notes are limited to `MAX_NOTES_CHARS` characters (600,000, which is one whole trainee's manual).
 - CSV cells that start with `=`, `+`, `-` or `@` are prefixed so spreadsheets do not run them as formulas.
-- Each user has their own private library; every library and settings route requires a valid session.
+- Each user has their own private library; every library and settings route requires a valid session. No endpoint exposes another user's data.
+- OAuth 2.1 authorization code with PKCE secures the remote MCP server (`/oauth/authorize`, `/oauth/token`). Dynamic client registration is available at `/oauth/register`.
 
 ## Not built yet
 

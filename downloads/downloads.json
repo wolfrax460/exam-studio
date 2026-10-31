@@ -1,0 +1,52 @@
+{
+  "version": "0.2.1",
+  "updatedAt": "2026-10-31T00:00:00Z",
+  "packages": [
+    {
+      "name": "Exam Studio Skill (Claude)",
+      "file": "exam-studio-skill-0.2.1.zip",
+      "url": "https://examstudio.duckdns.org/downloads/integrations/0.2.1/exam-studio-skill-0.2.1.zip",
+      "type": "zip",
+      "size": 3057,
+      "sha256": "b87fcf309fc77e37cba02d804774b3cef035299302372d8c5088fcfdb322be9f",
+      "description": "Claude skill package: SKILL.md with workflow, marking scheme rules, tool definitions, and worked examples."
+    },
+    {
+      "name": "Exam Studio Plugin (Claude)",
+      "file": "exam-studio-plugin-0.2.1.zip",
+      "url": "https://examstudio.duckdns.org/downloads/integrations/0.2.1/exam-studio-plugin-0.2.1.zip",
+      "type": "zip",
+      "size": 973,
+      "sha256": "329e25ce589617ff0191ce155c9990052c278eb5873449823a7402395cc20cd4",
+      "description": "Claude plugin bundle: skill, remote MCP connector config, and slash commands (/exam, /notes, /handout, /flashcards, /usage)."
+    },
+    {
+      "name": "OpenAPI Schema (ChatGPT Actions)",
+      "file": "openapi.json",
+      "url": "https://examstudio.duckdns.org/downloads/chatgpt/openapi.json",
+      "type": "json",
+      "size": null,
+      "sha256": null,
+      "description": "Trimmed OpenAPI 3.1 schema with generate and library endpoints for Custom GPT Actions."
+    },
+    {
+      "name": "Tool Definitions (DeepSeek / OpenAI-compatible)",
+      "file": "tools.json",
+      "url": "https://examstudio.duckdns.org/downloads/integrations/0.2.1/tools.json",
+      "type": "json",
+      "size": null,
+      "sha256": null,
+      "description": "OpenAI-compatible function/tool definitions for the same Exam Studio tools."
+    }
+  ],
+  "connectors": {
+    "claudeDesktop": "https://examstudio.duckdns.org/downloads/claude/claude-desktop-connector.json",
+    "opencode": "https://examstudio.duckdns.org/downloads/claude/opencode-connector.json",
+    "cursor": "https://examstudio.duckdns.org/downloads/claude/cursor-connector.json"
+  },
+  "mcp": {
+    "url": "https://examstudio.duckdns.org/mcp",
+    "transport": "streamable-http",
+    "auth": "OAuth 2.1 authorization code + PKCE, or Bearer PAT"
+  }
+}

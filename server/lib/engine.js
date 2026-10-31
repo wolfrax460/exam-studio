@@ -157,27 +157,77 @@ function providerDetail(error) {
   return raw.replace(/\s+/g, ' ').slice(0, 200);
 }
 
+// Precise, user-safe error labels for every provider failure mode.
+// The real provider error is logged server-side (without note content); the user sees only
+// a safe label plus a short, actionable hint.
+const ERROR_LABELS = {
+  401: 'ai_unavailable',
+  403: 'ai_unavailable',
+  402: 'ai_unavailable',
+  404: 'ai_unavailable',
+  429: 'ai_rate_limited',
+  504: 'generation_timed_out',
+};
+
+// Retry once with a short backoff for transient provider errors.
+const RETRIABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function sleepMs(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
 // A friendly message for whatever the provider threw.
 export function explainProviderError(error, cfg) {
   const status = error?.status || error?.response?.status;
-  // The built-in AI's real provider, endpoint and model are never shown to users.
-  if (cfg?.id === 'nvidia') {
-    return httpError(status || 502, 'Exam Studio AI is busy / unavailable.');
-  }
   const raw = String(error?.message || 'unknown error');
   const label = cfg?.label || 'AI service';
   const detail = providerDetail(error);
   const because = detail && !/^HTTP \d+$/.test(detail) ? ` It said: ${detail}` : '';
 
+  // Map HTTP status to a precise user-safe error code.
+  let code = 'ai_unavailable';
+  if (status === 429) code = 'ai_rate_limited';
+  else if (error?.name === 'AbortError' || error?.name === 'TimeoutError') code = 'generation_timed_out';
+  else if (status === 402 || (status === 400 && /credit|balance|quota/i.test(raw))) code = 'ai_unavailable';
+  else if (status === 404) code = 'ai_unavailable';
+  else if (error?.code === 'ENOENT') code = 'ai_unavailable';
+  else if (error?.code === 'ECONNREFUSED') code = 'ai_unavailable';
+
   if (status === 401 || status === 403) return httpError(500, `${label} rejected the API key. Check it in Settings, or ${cfg?.keyEnv || 'the key'} in server/.env.`);
   if (status === 402 || (status === 400 && /credit|balance|quota/i.test(raw))) return httpError(402, `The ${label} account has no balance left. Top it up and try again.${because}`);
-  if (status === 404) return httpError(502, `${label} did not recognise the model or address. Check the Model and Address in Settings.`);
-  if (status === 429) return httpError(429, `${label} is at its limit for now. Wait a minute and try again, or pick another provider in Settings.${because}`);
-  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return httpError(504, `${label} took too long to answer.`);
+  if (status === 404) return httpError(502, `${label} did not recognise the model or address. Check the Model and Address in Settings.${because}`);
+  if (status === 429) {
+    const retryAfter = error?.headers?.['retry-after'] || error?.response?.headers?.['retry-after'];
+    const hint = retryAfter ? ` Try again in ${retryAfter} seconds.` : ' Wait a moment and try again.';
+    return httpError(429, `${label} is at its limit for now.${hint} Or pick another provider in Settings.${because}`);
+  }
+  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return httpError(504, `${label} took too long to answer. Use shorter notes or fewer questions.`);
   if (error?.code === 'ENOENT') return httpError(400, `${label} was not found on this computer. Install it and sign in once.`);
   if (error?.code === 'ECONNREFUSED') return httpError(502, `${label} is not answering at ${cfg?.baseURL || 'its address'}. Is it running?`);
   if (error?.status && error.status < 500) return error; // already an httpError we produced
   return httpError(502, `${label} failed: ${raw}`);
+}
+
+/**
+ * Call a provider function once, retrying once with backoff on transient 429/5xx errors.
+ * The provider function must throw an httpError (with .status) on failure.
+ */
+export async function callWithRetry(run) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      lastError = error;
+      const status = error?.status;
+      if (attempt === 0 && status && RETRIABLE_STATUSES.has(status)) {
+        const retryAfter = error?.headers?.['retry-after'] || error?.response?.headers?.['retry-after'];
+        const backoffMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 10000) : 2000;
+        await sleepMs(backoffMs);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
 const withTimeout = (ms) => AbortSignal.timeout(ms);
@@ -253,33 +303,45 @@ const baseUrl = (cfg) => String(cfg.baseURL || '').replace(/\/+$/, '');
 async function openaiRequest(cfg, path, { method = 'GET', body, timeoutMs = 120_000 } = {}) {
   if (!baseUrl(cfg)) throw httpError(500, 'This provider needs an address (base URL). Set it in Settings.');
   const url = `${baseUrl(cfg)}${path}`;
-  let response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers: openaiHeaders(cfg),
-      body: body ? JSON.stringify(body) : undefined,
-      signal: withTimeout(timeoutMs),
-    });
-  } catch (error) {
-    throw explainProviderError(error, cfg);
-  }
-  if (!response.ok) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: openaiHeaders(cfg),
+        body: body ? JSON.stringify(body) : undefined,
+        signal: withTimeout(timeoutMs),
+      });
+    } catch (error) {
+      throw explainProviderError(error, cfg);
+    }
+    if (response.ok) {
+      // A 2xx is not a promise of JSON: proxies and gateways answer with an HTML page, and some
+      // servers only speak SSE. Either way this must be a clean 502, not a server crash.
+      const raw = await response.text().catch(() => '');
+      if (!raw.trim()) throw httpError(502, `${cfg.label} sent an empty reply.`);
+      try {
+        return JSON.parse(raw);
+      } catch {
+        console.warn(`Provider ${cfg.id} answered ${response.status} with a body that is not JSON (${String(response.headers.get('content-type') || 'no content type')}, ${raw.length} bytes).`);
+        throw httpError(502, `${cfg.label} sent a reply that is not JSON. Check the address in Settings.`);
+      }
+    }
     const text = await response.text().catch(() => '');
     const error = new Error(text.slice(0, 400) || `HTTP ${response.status}`);
     error.status = response.status;
+    error.headers = response.headers;
+    lastError = error;
+    if (attempt === 0 && RETRIABLE_STATUSES.has(response.status)) {
+      const retryAfter = response.headers.get('retry-after');
+      const backoffMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 10000) : 2000;
+      await sleepMs(backoffMs);
+      continue;
+    }
     throw explainProviderError(error, cfg);
   }
-  // A 2xx is not a promise of JSON: proxies and gateways answer with an HTML page, and some
-  // servers only speak SSE. Either way this must be a clean 502, not a server crash.
-  const raw = await response.text().catch(() => '');
-  if (!raw.trim()) throw httpError(502, `${cfg.label} sent an empty reply.`);
-  try {
-    return JSON.parse(raw);
-  } catch {
-    console.warn(`Provider ${cfg.id} answered ${response.status} with a body that is not JSON (${String(response.headers.get('content-type') || 'no content type')}, ${raw.length} bytes).`);
-    throw httpError(502, `${cfg.label} sent a reply that is not JSON. Check the address in Settings.`);
-  }
+  throw explainProviderError(lastError, cfg);
 }
 
 async function openaiStructured(cfg, { system, user, tool, maxTokens }) {
@@ -369,9 +431,13 @@ export async function callStructured({ system, user, tool, maxTokens, providerId
   if (!cfg) throw httpError(500, 'The selected AI provider is not known. Pick one again in Settings.');
   // Respect the "Max output" setting unless the caller asks for something specific.
   const budget = maxTokens || cfg.maxOut || 8000;
-  if (cfg.protocol === 'cli') return cliStructured(cfg, { system, user, tool });
-  if (cfg.protocol === 'openai') return openaiStructured(cfg, { system, user, tool, maxTokens: budget });
-  return anthropicStructured(cfg, { system, user, tool, maxTokens: budget });
+  const run = () => (cfg.protocol === 'cli')
+    ? cliStructured(cfg, { system, user, tool })
+    : (cfg.protocol === 'openai')
+      ? openaiStructured(cfg, { system, user, tool, maxTokens: budget })
+      : anthropicStructured(cfg, { system, user, tool, maxTokens: budget });
+  // CLI already retries internally; wrap everything else in the shared retry.
+  return cfg.protocol === 'cli' ? run() : callWithRetry(run);
 }
 
 /** A short free-text answer, used by "Test connection". */

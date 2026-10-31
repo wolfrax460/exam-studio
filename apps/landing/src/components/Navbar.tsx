@@ -52,7 +52,7 @@ export default function Navbar() {
           <a href={config.links.openApp} className="btn btn-primary btn-small">Get started</a>
           <ThemeToggle />
           <button aria-label="Open menu" className="md:hidden p-2 rounded-lg border border-[color:var(--c-line)]" onClick={() => setOpen((o) => !o)}>
-            {open ? 'âœ•' : 'â‰¡'}
+            {open ? '✕' : '☰'}
           </button>
         </div>
       </nav>

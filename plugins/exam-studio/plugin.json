@@ -1,0 +1,76 @@
+{
+  "name": "exam-studio",
+  "version": "0.2.1",
+  "description": "Exam Studio integration for Claude: generate exams, study notes, handouts, and flashcards from course notes via the remote MCP server.",
+  "author": "Exam Studio",
+  "mcp": {
+    "url": "https://examstudio.duckdns.org/mcp",
+    "transport": "streamable-http",
+    "auth": {
+      "type": "oauth2",
+      "authorization_url": "https://examstudio.duckdns.org/oauth/authorize",
+      "token_url": "https://examstudio.duckdns.org/oauth/token",
+      "registration_url": "https://examstudio.duckdns.org/oauth/register"
+    }
+  },
+  "skill": "exam-studio",
+  "slash_commands": [
+    {
+      "name": "/exam",
+      "description": "Generate an exam paper from course notes with a separate marking scheme.",
+      "arguments": [
+        { "name": "notes", "description": "Course notes text or file path", "required": true },
+        { "name": "title", "description": "Exam title / module name", "required": false },
+        { "name": "level", "description": "Level (e.g. L3, L4)", "required": false },
+        { "name": "total_marks", "description": "Total marks for the paper (default 100)", "required": false },
+        { "name": "types", "description": "Question types (mcq, true_false, short_answer, essay, ...)", "required": false }
+      ]
+    },
+    {
+      "name": "/notes",
+      "description": "Generate structured study notes from course notes.",
+      "arguments": [
+        { "name": "notes", "description": "Course notes text or file path", "required": true },
+        { "name": "title", "description": "Notes title / module name", "required": false },
+        { "name": "focus", "description": "Optional topic to focus on", "required": false }
+      ]
+    },
+    {
+      "name": "/handout",
+      "description": "Generate a printable study handout: one lesson per indicative content, with worked examples, diagrams, revision, and study tips.",
+      "arguments": [
+        { "name": "notes", "description": "Course notes text or file path", "required": true },
+        { "name": "title", "description": "Handout title / module name", "required": false },
+        { "name": "level", "description": "Level (e.g. L3, L4)", "required": false }
+      ]
+    },
+    {
+      "name": "/flashcards",
+      "description": "Generate flashcards including trap cards for commonly confused terms.",
+      "arguments": [
+        { "name": "notes", "description": "Course notes text or file path", "required": true },
+        { "name": "title", "description": "Deck title", "required": false },
+        { "name": "count", "description": "Number of cards (default 30)", "required": false }
+      ]
+    },
+    {
+      "name": "/usage",
+      "description": "Check your daily generation quota and remaining allowance.",
+      "arguments": []
+    }
+  ],
+  "tools": [
+    "exam_studio_format_guide",
+    "exam_studio_read_notes",
+    "exam_studio_generate_exam",
+    "exam_studio_generate_notes",
+    "exam_studio_generate_flashcards",
+    "exam_studio_generate_handout",
+    "exam_studio_check_exam",
+    "exam_studio_check_handout",
+    "exam_studio_export_exam",
+    "exam_studio_export_notes",
+    "exam_studio_export_handout",
+    "exam_studio_library"
+  ]
+}

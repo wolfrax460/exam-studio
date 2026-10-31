@@ -1,0 +1,14 @@
+[
+  {
+    "name": "exam-studio-plugin-0.2.1.zip",
+    "size": 973,
+    "sha256": "329e25ce589617ff0191ce155c9990052c278eb5873449823a7402395cc20cd4",
+    "url": "https://examstudio.duckdns.org/downloads/integrations/0.2.1/exam-studio-plugin-0.2.1.zip"
+  },
+  {
+    "name": "exam-studio-skill-0.2.1.zip",
+    "size": 3057,
+    "sha256": "b87fcf309fc77e37cba02d804774b3cef035299302372d8c5088fcfdb322be9f",
+    "url": "https://examstudio.duckdns.org/downloads/integrations/0.2.1/exam-studio-skill-0.2.1.zip"
+  }
+]

@@ -1,0 +1,72 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "exam_studio_generate_exam",
+      "description": "Generate an RTB-style exam paper from course notes. Returns questions with marking points and a separate marking scheme.",
+      "parameters": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Course notes text (minimum 50 chars)" },
+          "title": { "type": "string", "description": "Exam / module title" },
+          "level": { "type": "string", "description": "Level (e.g. L3, L4)" },
+          "totalMarks": { "type": "integer", "minimum": 10, "maximum": 200, "default": 100, "description": "Total marks for the paper" },
+          "types": { "type": "array", "items": { "type": "string", "enum": ["mcq", "true_false", "select_all", "matching", "sequencing", "short_answer", "essay"] }, "description": "Question types" },
+          "moduleCode": { "type": "string", "description": "Module code (e.g. SWDDD401)" },
+          "trade": { "type": "string", "description": "Trade or subject area" }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exam_studio_generate_notes",
+      "description": "Generate structured study notes from course notes, with topics, key points, and examples.",
+      "parameters": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Course notes text" },
+          "title": { "type": "string", "description": "Module or notes title" },
+          "focus": { "type": "string", "description": "Optional topic to focus on" }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exam_studio_generate_flashcards",
+      "description": "Generate flashcards (front/back) from course notes, including trap cards for commonly confused terms.",
+      "parameters": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Course notes text" },
+          "title": { "type": "string", "description": "Deck title" },
+          "count": { "type": "integer", "minimum": 5, "maximum": 80, "default": 30, "description": "Number of cards" }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exam_studio_generate_handout",
+      "description": "Generate a printable study handout: one lesson per indicative content, with key terms, worked examples, diagrams, memory sheet, revision, practical task, and study tips.",
+      "parameters": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Course notes text" },
+          "title": { "type": "string", "description": "Handout / module title" },
+          "level": { "type": "string", "description": "Level (e.g. L3, L4)" },
+          "includeRevision": { "type": "boolean", "default": true, "description": "Include revision questions" },
+          "includePractical": { "type": "boolean", "default": true, "description": "Include practical assessment task" }
+        }
+      }
+    }
+  }
+]

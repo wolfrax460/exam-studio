@@ -21,6 +21,8 @@ type Downloads = {
   previousVersions?: { version: string; releaseDate: string; platforms: Platform[] }[];
 };
 
+const toAbs = (u: string | null | undefined) => (!u ? null : (/^https?:\/\//i.test(u) ? u : `https://examstudio.duckdns.org${u}`));
+
 function isPhone(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -51,7 +53,13 @@ export default function Desktop() {
 
   useEffect(() => {
     setOs(detectOS());
-    fetch('https://examstudio.duckdns.org/downloads/downloads.json').then(r => r.json()).then(setData).catch(() => {});
+    fetch('https://examstudio.duckdns.org/downloads/downloads.json').then(async (r) => {
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok || ct.includes('text/html')) throw new Error('bad download source');
+      const j = await r.json();
+      if (Array.isArray(j?.platforms)) return j;
+      throw new Error('bad shape');
+    }).then(setData).catch(() => {});
   }, []);
 
   const platformFor = (name: string) => data?.platforms.find((p) => p.os === name) || null;
@@ -94,7 +102,7 @@ export default function Desktop() {
 
           {os !== 'mac' ? (
             <a
-              href={(os === 'linux' ? linux?.url : windows?.url) || undefined}
+              href={toAbs(os === 'linux' ? linux?.url : windows?.url) || undefined}
               download={(os === 'linux' ? linux?.file : windows?.file) || undefined}
               onClick={() => startDownload(os === 'linux' ? linux : windows)}
               className="btn btn-primary w-full"
@@ -110,7 +118,7 @@ export default function Desktop() {
           {mac?.status === 'coming-soon' ? null : null}
 
           <p className="text-xs mt-3 opacity-70">
-            If the download did not start, use <a className="underline" href={(os === 'linux' ? linux?.url : windows?.url) || undefined} download>Try again</a>.
+            If the download did not start, use <a className="underline" href={toAbs(os === 'linux' ? linux?.url : windows?.url) || undefined} download>Try again</a>.
           </p>
 
           {started ? (
