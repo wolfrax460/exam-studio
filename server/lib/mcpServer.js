@@ -325,7 +325,7 @@ export function createMcpServer(options = {}) {
     inputSchema: { action: z.enum(['list', 'get', 'save']), id: z.string().optional(), kind: z.enum(['notes', 'exam', 'flashcards', 'handout']).optional(), title: z.string().optional(), data: z.record(z.any()).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false },
   }, tool(async ({ action, id, kind, title, data }) => {
-    if (!userId) throw new Error('Not authenticated.');
+    if (remote && !userId) throw new Error('Not authenticated.');
     if (action === 'list') return text(await listItems(userId));
     if (action === 'get') {
       const item = id && (await getItem(id, userId));

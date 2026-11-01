@@ -17,7 +17,7 @@ import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
 import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus } from './lib/store.js';
-import { normalizeEmail, findUserByEmail, createUser, countUsers } from './lib/repository.js';
+import { normalizeEmail, findUserByEmail, createUser, countUsers, findUserById } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
   generateToken, verifyToken, publicUser, dummyCompare, JWT_EXPIRES_IN,

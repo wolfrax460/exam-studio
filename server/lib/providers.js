@@ -18,7 +18,7 @@ export const PROVIDERS = {
   },
   nvidia: {
     label: 'Exam Studio AI', protocol: 'openai', keyEnv: 'NVIDIA_API_KEY', needsKey: true,
-    model: 'nvidia/nemotron-3.5-super-v1-120b-a12b', baseURL: 'https://integrate.api.nvidia.com/v1', maxOut: 8192, chunk: 8000,
+    model: 'nvidia/nemotron-3.5-super-vl-120b-a12b', baseURL: 'https://integrate.api.nvidia.com/v1', maxOut: 8192, chunk: 8000,
     help: 'The default AI for Exam Studio. Managed by the administrator.',
     defaultAI: true,
   },

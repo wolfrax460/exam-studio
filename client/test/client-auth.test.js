@@ -145,4 +145,12 @@ describe('api helpers', () => {
     assert.equal(announced, 1, 'the app is told to show the sign-in screen');
     delete globalThis.window;
   });
+
+  it('rejects a path that already starts with /api/ (prevents /api/api/...)', async () => {
+    await assert.rejects(() => api.post('/api/tokens', { name: 'x' }), (error) => {
+      assert.equal(error.status, 0);
+      assert.match(error.message, /Double "\/api"/);
+      return true;
+    });
+  });
 });
