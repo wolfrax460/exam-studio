@@ -16,7 +16,7 @@ import { generateNotes, generateCards, generateExam, generateHandout, activeInfo
 import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
-import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus } from './lib/store.js';
+import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus, storageMode } from './lib/store.js';
 import { normalizeEmail, findUserByEmail, createUser, countUsers, findUserById } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
@@ -26,13 +26,16 @@ import { updateSettings, getSettings } from './lib/settings.js';
 import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js';
 import * as admin from './lib/adminStore.js';
 import { verifyPatToken } from './lib/adminStore.js';
+import OAuthClient from './lib/models/OAuthClient.js';
+import OAuthCode from './lib/models/OAuthCode.js';
+import PublicQuota from './lib/models/PublicQuota.js';
 import * as mailer from './lib/mailer.js';
-import { dailyGenerationLimit, anonymousGenerationLimit, generationRateLimit, resetsAtIso } from './lib/dailyLimit.js';
+import { dailyGenerationLimit, anonymousGenerationLimit, generationRateLimit, resetsAtIso, kigaliDay } from './lib/dailyLimit.js';
 import { requireAdmin } from './lib/auth.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
-import { createMcpServer } from './lib/mcpServer.js';
+import { createMcpServer, PUBLIC_INPUT_MAX_CHARS } from './lib/mcpServer.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
@@ -307,7 +310,12 @@ app.post('/api/auth/login', loginLimit, wrap(async (req, res) => {
     }
   }
 
-  res.json({ token: generateToken(user), user: publicUser(user) });
+  const token = generateToken(user);
+  const redirect = String(req.query.redirect || '');
+  if (redirect) {
+    return res.redirect(redirect);
+  }
+  res.json({ token, user: publicUser(user) });
 }));
 
 // Registered before the required-auth middleware, so it simply reports "signed out".
@@ -471,6 +479,203 @@ function createTransport(sessionId, userId) {
   mcpTransports.set(sessionIdFinal, { transport, userId });
   return transport;
 }
+
+// ---------------------------------------------------------------- public MCP (no auth)
+// A separate transport map for anonymous sessions on /mcp/public. Sessions are bound to the
+// hashed client IP; session ids from other IPs are rejected.
+const publicTransports = new Map(); // sessionId -> { transport, ipHash }
+function createPublicTransport(sessionId, ipHash) {
+  const sessionIdFinal = sessionId || crypto.randomUUID();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => sessionIdFinal,
+    onsessionclosed: (id) => { publicTransports.delete(String(id)); },
+  });
+  const server = createMcpServer({ remote: true, public: true });
+  server.connect(transport);
+  publicTransports.set(sessionIdFinal, { transport, ipHash });
+  return transport;
+}
+
+// Public anonymous quota and abuse protection. Raw IPs are never stored: they are hashed with a
+// server secret before being written to MongoDB. Counters expire on their own (TTL) and survive
+// restarts.
+const PUBLIC_GENERATIONS_PER_DAY_PER_IP = 5;
+const PUBLIC_GLOBAL_DAILY_CAP = Number(process.env.PUBLIC_MCP_DAILY_CAP) || 200;
+const PUBLIC_BURST_SECONDS = 20;
+const PUBLIC_BURST_LIMIT = 1;
+const PUBLIC_NON_GEN_PER_MIN = 30;
+const PUBLIC_MAX_SESSIONS_PER_IP = 50;
+const PUBLIC_MAX_CONCURRENT_GENERATIONS = 3;
+
+let publicConcurrentGenerations = 0;
+
+// Fallback in-memory counters used when MongoDB is not available (file-store / desktop mode).
+// Keyed by `ipKey:day` (for example `ip:<sha256>:2026-11-01`).
+const publicQuotaFallback = new Map();
+
+function publicFallbackKey(ipHash, day, subKey) { return `${ipHash}:${day}:${subKey}`; }
+
+function publicFallbackGet(ipHash, day, subKey) {
+  const entry = publicQuotaFallback.get(publicFallbackKey(ipHash, day, subKey));
+  return entry ? { ...entry, value: entry.value || 0 } : null;
+}
+function publicFallbackSet(ipHash, day, subKey, value, ttlMs) {
+  const key = publicFallbackKey(ipHash, day, subKey);
+  publicQuotaFallback.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+function publicFallbackInc(ipHash, day, subKey, amount, ttlMs) {
+  const key = publicFallbackKey(ipHash, day, subKey);
+  const entry = publicQuotaFallback.get(key);
+  const next = (entry && entry.expiresAt > Date.now() ? entry.value : 0) + amount;
+  publicQuotaFallback.set(key, { value: next, expiresAt: Date.now() + ttlMs });
+  return next;
+}
+
+function publicIpHash(ip) {
+  const secret = process.env.PUBLIC_MCP_IP_SECRET || process.env.JWT_SECRET || 'exam-studio-public-default';
+  return crypto.createHash('sha256').update(`${secret}:${String(ip || 'unknown')}`).digest('hex');
+}
+
+function publicDayKey() { return kigaliDay(); }
+
+// Increments counters for a public IP and returns { ok, reason, resetsAt, retryAfterSeconds }.
+// Counters live in MongoDB when it is available, otherwise in an in-memory map (file-store mode).
+async function publicCheckAndRecord(ipHash, isGeneration) {
+  await initStorage();
+  const day = publicDayKey();
+  const now = Date.now();
+  const resetsAt = resetsAtIso();
+  const useMongo = storageMode() === 'mongo';
+
+  if (useMongo) {
+    // Global daily cap (all IPs).
+    const globalDoc = await PublicQuota.findOne({ key: 'global:day', day }).lean();
+    const globalUsed = globalDoc?.generations || 0;
+    if (isGeneration && globalUsed >= PUBLIC_GLOBAL_DAILY_CAP) {
+      return { ok: false, reason: 'daily_limit_reached', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000)) };
+    }
+
+    const ipKey = `ip:${ipHash}`;
+    const doc = await PublicQuota.findOne({ key: ipKey, day }).lean() || {};
+    const used = doc.generations || 0;
+    const requests = doc.requests || 0;
+
+    if (isGeneration) {
+      if (used >= PUBLIC_GENERATIONS_PER_DAY_PER_IP) {
+        return { ok: false, reason: 'daily_limit_reached', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000)) };
+      }
+      const burstWindow = doc.burstWindow ? new Date(doc.burstWindow).getTime() : 0;
+      if (doc.burst >= PUBLIC_BURST_LIMIT && now - burstWindow < PUBLIC_BURST_SECONDS * 1000) {
+        return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((burstWindow + PUBLIC_BURST_SECONDS * 1000 - now) / 1000)) };
+      }
+      if (publicConcurrentGenerations >= PUBLIC_MAX_CONCURRENT_GENERATIONS) {
+        return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: PUBLIC_BURST_SECONDS };
+      }
+    } else {
+      const reqWindow = doc.requestsWindow ? new Date(doc.requestsWindow).getTime() : 0;
+      if (now - reqWindow >= 60 * 1000) {
+        await PublicQuota.updateOne({ key: ipKey, day }, { $set: { requests: 1, requestsWindow: new Date() } }, { upsert: true }).catch(() => {});
+        return { ok: true };
+      }
+      if (requests >= PUBLIC_NON_GEN_PER_MIN) {
+        return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((reqWindow + 60 * 1000 - now) / 1000)) };
+      }
+      await PublicQuota.updateOne({ key: ipKey, day }, { $inc: { requests: 1 } }, { upsert: true }).catch(() => {});
+      return { ok: true };
+    }
+    return { ok: true, used };
+  }
+
+  // File-store fallback: in-memory counters.
+  const globalUsed = Number(publicFallbackGet(ipHash, day, 'global')?.value || 0);
+  if (isGeneration && globalUsed >= PUBLIC_GLOBAL_DAILY_CAP) {
+    return { ok: false, reason: 'daily_limit_reached', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000)) };
+  }
+  const used = Number(publicFallbackGet(ipHash, day, 'generations')?.value || 0);
+  const requests = Number(publicFallbackGet(ipHash, day, 'requests')?.value || 0);
+  if (isGeneration) {
+    if (used >= PUBLIC_GENERATIONS_PER_DAY_PER_IP) {
+      return { ok: false, reason: 'daily_limit_reached', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000)) };
+    }
+    const burst = publicFallbackGet(ipHash, day, 'burst');
+    const burstWindowStart = burst ? burst.expiresAt - PUBLIC_BURST_SECONDS * 1000 : 0;
+    if (burst && burst.value >= PUBLIC_BURST_LIMIT && now - burstWindowStart < PUBLIC_BURST_SECONDS * 1000) {
+      return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((burstWindowStart + PUBLIC_BURST_SECONDS * 1000 - now) / 1000)) };
+    }
+    if (publicConcurrentGenerations >= PUBLIC_MAX_CONCURRENT_GENERATIONS) {
+      return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: PUBLIC_BURST_SECONDS };
+    }
+  } else {
+    const reqWindow = publicFallbackGet(ipHash, day, 'requestsWindow');
+    if (reqWindow && now - reqWindow.value >= 60 * 1000) {
+      publicFallbackSet(ipHash, day, 'requests', 1, 60 * 1000);
+      publicFallbackSet(ipHash, day, 'requestsWindow', now, 60 * 1000);
+      return { ok: true };
+    }
+    if (requests >= PUBLIC_NON_GEN_PER_MIN) {
+      return { ok: false, reason: 'ai_rate_limited', resetsAt, retryAfterSeconds: Math.max(1, Math.ceil(((reqWindow ? reqWindow.value : 0) + 60 * 1000 - now) / 1000)) };
+    }
+    publicFallbackInc(ipHash, day, 'requests', 1, 60 * 1000);
+    return { ok: true };
+  }
+  return { ok: true, used };
+}
+
+// Call after a generation finishes (success or failure) to bump the daily/burst counters.
+async function publicRecordGeneration(ipHash) {
+  await initStorage();
+  const day = publicDayKey();
+  const now = Date.now();
+  if (storageMode() === 'mongo') {
+    const ipKey = `ip:${ipHash}`;
+    await PublicQuota.updateOne({ key: ipKey, day }, { $setOnInsert: { createdAt: new Date() }, $inc: { generations: 1 }, $set: { burst: 1, burstWindow: new Date() } }, { upsert: true }).catch(() => {});
+    await PublicQuota.updateOne({ key: 'global:day', day }, { $setOnInsert: { createdAt: new Date() }, $inc: { generations: 1 } }, { upsert: true }).catch(() => {});
+  } else {
+    publicFallbackInc(ipHash, day, 'generations', 1, 24 * 60 * 60 * 1000);
+    publicFallbackSet(ipHash, day, 'burst', 1, PUBLIC_BURST_SECONDS * 1000);
+    publicFallbackInc(ipHash, day, 'global', 1, 24 * 60 * 60 * 1000);
+  }
+}
+
+// Session bookkeeping: open/close a session for an IP.
+async function publicSessionOpen(ipHash) {
+  await initStorage();
+  const day = publicDayKey();
+  const now = Date.now();
+  if (storageMode() === 'mongo') {
+    const ipKey = `ip:${ipHash}`;
+    const doc = await PublicQuota.findOne({ key: ipKey, day }).lean() || {};
+    const sessionsWindow = doc.sessionsWindow ? new Date(doc.sessionsWindow).getTime() : 0;
+    const sessions = (now - sessionsWindow < 60 * 1000 ? doc.sessions || 0 : 0);
+    if (sessions >= PUBLIC_MAX_SESSIONS_PER_IP) return false;
+    await PublicQuota.updateOne({ key: ipKey, day }, {
+      $setOnInsert: { createdAt: new Date() },
+      $set: { sessions: sessions + 1, sessionsWindow: new Date() },
+    }, { upsert: true }).catch(() => {});
+  } else {
+    const sessions = publicFallbackGet(ipHash, day, 'sessions');
+    const windowStart = sessions ? sessions.expiresAt - 60 * 1000 : 0;
+    const count = (sessions && now - windowStart < 60 * 1000 ? sessions.value : 0);
+    if (count >= PUBLIC_MAX_SESSIONS_PER_IP) return false;
+    publicFallbackInc(ipHash, day, 'sessions', 1, 60 * 1000);
+    publicFallbackSet(ipHash, day, 'sessionsWindow', now, 60 * 1000);
+  }
+  return true;
+}
+async function publicSessionClose(ipHash) {
+  await initStorage();
+  const day = publicDayKey();
+  if (storageMode() === 'mongo') {
+    const ipKey = `ip:${ipHash}`;
+    await PublicQuota.updateOne({ key: ipKey, day }, { $inc: { sessions: -1 } }).catch(() => {});
+  } else {
+    const entry = publicFallbackGet(ipHash, day, 'sessions');
+    if (entry && entry.value > 0) {
+      publicQuotaFallback.set(publicFallbackKey(ipHash, day, 'sessions'), { value: entry.value - 1, expiresAt: entry.expiresAt });
+    }
+  }
+}
+
 app.post('/mcp', wrap(async (req, res) => {
   // Enforce authentication: missing or invalid Bearer => 401 with WWW-Authenticate
   const header = req.headers?.authorization || '';
@@ -514,63 +719,236 @@ app.post('/mcp', wrap(async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 }));
 
+// Public, no-auth MCP endpoint. Same Streamable HTTP transport and session handling as /mcp,
+// but with no bearer token required and a generate-only tool set. See /.well-known/mcp-public.json.
+app.post('/mcp/public', wrap(async (req, res) => {
+  // Kill switch.
+  if (process.env.PUBLIC_MCP_ENABLED === 'false') {
+    return res.status(503).type('application/json; charset=utf-8').json({ error: 'unavailable', message: 'The public demo is temporarily disabled.' });
+  }
+
+  // Real client IP behind Caddy: trust proxy, take the first address in X-Forwarded-For.
+  let ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded && Array.isArray(forwarded) === false) {
+    const first = String(forwarded).split(',')[0]?.trim();
+    if (first) ip = first;
+  } else if (Array.isArray(forwarded) && forwarded[0]) {
+    ip = String(forwarded[0]).split(',')[0]?.trim() || ip;
+  }
+  const ipHash = publicIpHash(ip);
+  res.set('Cache-Control', 'no-store');
+
+  const sessionId = req.headers['mcp-session-id'] || req.query.session_id;
+  if (sessionId && publicTransports.has(String(sessionId))) {
+    const existing = publicTransports.get(String(sessionId));
+    if (existing.ipHash !== ipHash) {
+      return res.status(401).json({ error: 'invalid_session', message: 'Session belongs to another client.' });
+    }
+  }
+
+  // Open / track a session for this IP (cap of 50 open sessions per IP).
+  if (!(await publicSessionOpen(ipHash))) {
+    return res.status(429).json({ error: 'too_many_sessions', message: 'Too many open sessions from this address.' });
+  }
+
+  // Decide whether this request is a generation (so we can apply and record the generation quota).
+  const body = req.body || {};
+  const isGeneration = body.method === 'tools/call' && ['exam_studio_generate_notes', 'exam_studio_generate_exam', 'exam_studio_generate_handout', 'exam_studio_generate_flashcards'].includes(String(body.params?.name || ''));
+
+  // Reject oversize input before it consumes a rate-limit slot, with a clear JSON error.
+  if (isGeneration) {
+    const text = String(body.params?.arguments?.text || '');
+    if (text.length > PUBLIC_INPUT_MAX_CHARS) {
+      res.set('Cache-Control', 'no-store');
+      return res.status(400).json({ error: 'input_too_large', message: `Input is too long. The limit is ${PUBLIC_INPUT_MAX_CHARS.toLocaleString()} characters.` });
+    }
+  }
+
+  // Enforce the quota before doing any work.
+  const allowance = await publicCheckAndRecord(ipHash, isGeneration);
+  if (!allowance.ok) {
+    const status = allowance.reason === 'daily_limit_reached' ? 429 : 429;
+    res.set('Cache-Control', 'no-store');
+    return res.status(status).json({ error: allowance.reason, message: allowance.reason === 'daily_limit_reached' ? 'Daily public generation limit reached. Try again tomorrow.' : 'Rate limited. Please slow down.', retryAfterSeconds: allowance.retryAfterSeconds, resetsAt: allowance.resetsAt });
+  }
+
+  try {
+    let transportEntry = sessionId && publicTransports.get(String(sessionId));
+    let transport = transportEntry ? transportEntry.transport : null;
+    if (!transport) transport = createPublicTransport(sessionId, ipHash);
+    await transport.handleRequest(req, res, req.body);
+  } finally {
+    // Record a generation after the call (success or failure) so the daily/burst counters advance.
+    if (isGeneration) await publicRecordGeneration(ipHash);
+    // best-effort session decrement; the transport's onsessionclosed is the real signal
+    setTimeout(() => publicSessionClose(ipHash), 1000);
+  }
+}));
+
+// Public endpoint metadata: limits, tool set, and how to connect.
+app.get('/.well-known/mcp-public.json', wrap(async (_req, res) => {
+  res.json({
+    endpoint: 'https://examstudio.duckdns.org/mcp/public',
+    transport: 'Streamable HTTP',
+    authentication: 'none',
+    description: 'Public demo of Exam Studio. Text is processed to generate output and is not stored.',
+    tools: [
+      'exam_studio_generate_notes',
+      'exam_studio_generate_exam',
+      'exam_studio_generate_handout',
+      'exam_studio_generate_flashcards',
+      'exam_studio_get_usage',
+    ],
+    limits: {
+      generationsPerDayPerIp: PUBLIC_GENERATIONS_PER_DAY_PER_IP,
+      globalDailyCap: PUBLIC_GLOBAL_DAILY_CAP,
+      inputMaxChars: PUBLIC_INPUT_MAX_CHARS,
+      burstSecondsPerIp: PUBLIC_BURST_SECONDS,
+      nonGenerationRequestsPerMinutePerIp: PUBLIC_NON_GEN_PER_MIN,
+      maxConcurrentGenerations: PUBLIC_MAX_CONCURRENT_GENERATIONS,
+      maxOpenSessionsPerIp: PUBLIC_MAX_SESSIONS_PER_IP,
+      sessionIdleTimeoutMinutes: 10,
+    },
+    note: 'Signed-in users get higher limits through a personal access token at /mcp.',
+  });
+}));
+
+// ---------------------------------------------------------------- OAuth 2.1 discovery (RFC 8414)
+// These well-known endpoints let MCP clients (Claude, etc.) discover the OAuth server.
+app.get('/.well-known/oauth-protected-resource', wrap(async (_req, res) => {
+  res.json({
+    resource: 'https://examstudio.duckdns.org',
+    authorization_servers: ['https://examstudio.duckdns.org'],
+  });
+}));
+
+app.get('/.well-known/oauth-authorization-server', wrap(async (_req, res) => {
+  res.json({
+    issuer: 'https://examstudio.duckdns.org',
+    authorization_endpoint: 'https://examstudio.duckdns.org/oauth/authorize',
+    token_endpoint: 'https://examstudio.duckdns.org/oauth/token',
+    registration_endpoint: 'https://examstudio.duckdns.org/oauth/register',
+    revocation_endpoint: 'https://examstudio.duckdns.org/oauth/revoke',
+    code_challenge_methods_supported: ['S256'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+  });
+}));
+
 // ---------------------------------------------------------------- OAuth 2.1 + PKCE (for MCP clients)
 // Authorization codes are short-lived and single-use. PKCE prevents authorization code
 // interception on public clients. Tokens are PATs (est_...) hashed like API tokens.
-const oauthCodes = new Map(); // code -> { userId, clientId, redirectUri, codeChallenge, expiresAt }
-const oauthClients = new Map(); // clientId -> { clientSecret, redirectUris, name }
+// OAuth 2.1 + PKCE (for MCP clients) - backed by MongoDB so a service restart
+// never breaks an in-progress authorization flow.
 const OAUTH_CODE_TTL_MS = 10 * 60 * 1000;
+
+// Valid redirect_uri allowlist (RFC 8252 / Claude connector docs).
+const VALID_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'http://127.0.0.1/*',
+  'http://localhost/*',
+];
+
+function isValidRedirectUri(uri) {
+  if (VALID_REDIRECT_URIS.includes(uri)) return true;
+  // Allow any localhost port for the MCP inspector.
+  try {
+    const u = new URL(uri);
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1');
+  } catch {
+    return false;
+  }
+}
 
 function base64url(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function generateCodeVerifier() { return base64url(crypto.randomBytes(32)); }
 function codeChallenge(verifier) { return base64url(crypto.createHash('sha256').update(verifier).digest()); }
 
 // Dynamic client registration - MCP clients that need it can register here.
+// Fallback in-memory stores for file-storage mode (desktop app without MongoDB).
+const oauthClientsFallback = new Map();
+const oauthCodesFallback = new Map();
+
+function clientStore() { return storageMode() === 'mongo' ? null : oauthClientsFallback; }
+function codeStore() { return storageMode() === 'mongo' ? null : oauthCodesFallback; }
+
 app.post('/oauth/register', wrap(async (req, res) => {
-  const { client_name, redirect_uris, token_endpoint_auth_method } = req.body || {};
+  const { client_name, redirect_uris, token_endpoint_auth_method, logo_uri } = req.body || {};
   if (!Array.isArray(redirect_uris) || !redirect_uris.length) throw httpError(400, 'redirect_uris is required.');
+  for (const uri of redirect_uris) if (!isValidRedirectUri(uri)) throw httpError(400, `redirect_uri not allowed: ${uri}`);
   const clientId = `est_client_${crypto.randomBytes(16).toString('hex')}`;
   const clientSecret = token_endpoint_auth_method === 'none' ? '' : crypto.randomBytes(24).toString('hex');
-  oauthClients.set(clientId, { clientSecret, redirectUris: redirect_uris, name: client_name || 'Exam Studio MCP client', createdAt: new Date().toISOString() });
-  res.status(201).json({ client_id: clientId, client_secret: clientSecret, redirect_uris, token_endpoint_auth_method, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] });
+  const clientData = {
+    clientId,
+    clientSecret,
+    redirectUris: redirect_uris,
+    clientName: client_name || 'Exam Studio MCP client',
+    logoUri: logo_uri || null,
+    createdAt: new Date(),
+  };
+  if (storageMode() === 'mongo') {
+    await initStorage();
+    await OAuthClient.create(clientData);
+  } else {
+    clientStore().set(clientId, clientData);
+  }
+  res.status(201).json({
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uris,
+    token_endpoint_auth_method,
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    client_name: clientData.clientName,
+    ...(logo_uri ? { logo_uri } : {}),
+  });
 }));
 
 app.get('/oauth/authorize', wrap(async (req, res) => {
   const { response_type, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method } = req.query;
   if (response_type !== 'code') throw httpError(400, 'Only authorization_code flow is supported.');
-  const client = oauthClients.get(String(client_id));
-  if (!client) throw httpError(400, 'Unknown client_id.');
-  if (!client.redirectUris.includes(String(redirect_uri))) throw httpError(400, 'redirect_uri not registered for this client.');
+  if (!client_id || !redirect_uri || !code_challenge) {
+    throw httpError(400, 'client_id, redirect_uri and code_challenge are required.');
+  }
   if (code_challenge_method !== 'S256') throw httpError(400, 'code_challenge_method must be S256.');
-  if (!code_challenge) throw httpError(400, 'code_challenge is required (PKCE).');
 
-  // The user must already be signed in (JWT or PAT) to authorize.
-  const authHeader = req.headers.authorization || '';
-  const token = /^Bearer\s+(.+)$/i.exec(authHeader.trim())?.[1]?.trim() || authHeader.trim();
-  let userId;
-  if (token.startsWith('est_')) {
-    const info = await admin.verifyPatToken(token);
-    if (!info) return res.status(401).json({ error: 'invalid_token' });
-    userId = info.userId;
-  } else if (token) {
-    try {
-      const decoded = await import('./lib/auth.js').then((m) => m.verifyToken(token));
-      userId = decoded.sub || decoded.userId;
-    } catch { return res.status(401).json({ error: 'invalid_token' }); }
+  let client;
+  if (storageMode() === 'mongo') {
+    await initStorage();
+    client = await OAuthClient.findOne({ clientId: String(client_id) }).lean();
   } else {
-    return res.status(401).json({ error: 'login_required' });
+    client = clientStore().get(String(client_id));
+  }
+  if (!client) throw httpError(400, 'Unknown client_id.');
+  const redirectUris = Array.isArray(client.redirectUris) ? client.redirectUris : [];
+  if (!redirectUris.includes(String(redirect_uri))) throw httpError(400, 'redirect_uri not registered for this client.');
+
+  // Resolve the authenticated user, if any.
+  let userId = null;
+  const token = getBearerTokenFromReq(req);
+  if (token) {
+    if (token.startsWith('est_')) {
+      const info = await admin.verifyPatToken(token);
+      if (info) userId = info.userId;
+    } else {
+      try {
+        const { verifyToken } = await import('./lib/auth.js');
+        const decoded = verifyToken(token);
+        userId = decoded.sub || decoded.userId;
+      } catch { /* invalid token */ }
+    }
   }
 
-  const code = `est_oauth_${crypto.randomBytes(24).toString('hex')}`;
-  oauthCodes.set(code, {
-    userId, clientId: String(client_id), redirectUri: String(redirect_uri),
-    codeChallenge: String(code_challenge), scope: String(scope || ''),
-    state: String(state || ''), expiresAt: Date.now() + OAUTH_CODE_TTL_MS,
-  });
-  const redirect = new URL(String(redirect_uri));
-  redirect.searchParams.set('code', code);
-  if (state) redirect.searchParams.set('state', String(state));
-  res.redirect(redirect.toString());
+  if (!userId) {
+    return res.send(oauthLoginHtml({ client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, clientName: client.clientName }));
+  }
+
+  // User is signed in: show the consent screen.
+  res.send(oauthConsentHtml({
+    client_id, redirect_uri, scope, state, code_challenge, code_challenge_method,
+    clientName: client.clientName, userId,
+  }));
 }));
 
 app.post('/oauth/token', wrap(async (req, res) => {

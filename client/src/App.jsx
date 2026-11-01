@@ -704,6 +704,18 @@ export default function App() {
                 </tbody>
               </table>
             )}
+            {/*
+              Public demo connector card: a no-auth MCP endpoint for visitors who want to try
+              Exam Studio without creating an account.
+            */}
+            <div className="settings">
+              <label className="field grow">
+                <span>Public demo connector (no sign-in)</span>
+              </label>
+              <p className="hint">Add <code>https://examstudio.duckdns.org/mcp/public</code> as an MCP server with "No authentication". Limited to 5 generations per day per IP and 12,000 characters per request. Signed-in users get higher limits through a personal access token.</p>
+              <input className="mono" readOnly value="https://examstudio.duckdns.org/mcp/public" onClick={(e) => { e.target.select(); document.execCommand('copy'); flash('Public endpoint URL copied.'); }} />
+            </div>
+
             <button className="link" onClick={() => setShowTokens(false)}>Done</button>
           </div>
         </div>

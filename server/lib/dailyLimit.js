@@ -14,7 +14,7 @@ export function anonymousGenerationLimit() {
   return envNumber('DAILY_GENERATION_LIMIT_ANON', 3);
 }
 
-function kigaliDay() {
+export function kigaliDay() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kigali', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replace(/\//g, '-');
 }
 

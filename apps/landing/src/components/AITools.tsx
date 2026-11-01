@@ -312,17 +312,25 @@ export default function AITools() {
                 files: ['tools.json'],
                 url: '/downloads/integrations/0.2.1/tools.json',
               },
+              {
+                name: 'Public demo connector',
+                desc: 'No sign-in: add https://examstudio.duckdns.org/mcp/public with "No authentication". Limited to 5 generations/day per IP (12,000 characters max). Signed-in users get higher limits via a personal access token.',
+                url: 'https://examstudio.duckdns.org/mcp/public',
+              },
             ].map((item) => (
               <div key={item.name} className="card p-4">
                 <h4 className="font-semibold mb-1">{item.name}</h4>
                 <p className="text-sm opacity-80 mb-3">{item.desc}</p>
-                <div className="flex gap-2">
-                  {item.files.map((f) => {
+                <div className="flex gap-2 flex-wrap">
+                  {(item.files || []).map((f) => {
                     const url = item.url ?? `https://examstudio.duckdns.org/downloads/claude/${f}`;
                     return (
                       <a key={f} href={url} className="btn btn-ghost btn-small text-xs" target="_blank" rel="noopener">Download {f.split('.').pop()}</a>
                     );
                   })}
+                  {!item.files && item.url && (
+                    <a href={item.url} className="btn btn-ghost btn-small text-xs" target="_blank" rel="noopener">Open public endpoint</a>
+                  )}
                 </div>
               </div>
             ))}

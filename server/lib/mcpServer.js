@@ -155,18 +155,87 @@ ${HANDOUT_GUIDE}
 
 Workflow: exam_studio_read_notes (if the notes are a file) -> write the exam or the handout -> exam_studio_check_exam / exam_studio_check_handout -> fix every warning -> exam_studio_export_exam / exam_studio_export_handout.`;
 
+// Public, no-auth endpoint: text-only input, capped at 12,000 characters. Nothing is stored.
+export const PUBLIC_INPUT_MAX_CHARS = 12_000;
+export const PUBLIC_GENERATIONS_PER_DAY_PER_IP = 5;
+
 export function createMcpServer(options = {}) {
   const remote = Boolean(options.remote);
+  const public_ = Boolean(options.public);
   const userId = options.userId || null;
 
   // Remote users can only provide text input - no file_path, no output_dir (no server file access).
   const RemoteSource = { text: z.string().describe('The notes as text') };
 
-  const server = new McpServer({ name: 'exam-studio', version: pkg.version }, {
+  // Public, no-auth endpoint: text-only input, capped at 12,000 characters. Nothing is stored.
+  const PublicSource = {
+    text: z.string().max(PUBLIC_INPUT_MAX_CHARS, `Input is too long. The limit is ${PUBLIC_INPUT_MAX_CHARS.toLocaleString()} characters.`),
+  };
+
+  const server = new McpServer({
+    name: 'exam-studio',
+    version: pkg.version,
+    title: 'Exam Studio',
+    icon: { type: 'url', url: 'https://examstudio.duckdns.org/icon.svg' },
+  }, {
     instructions: remote
       ? 'Remote Exam Studio MCP server. Text-only input: provide notes as text. No file uploads, no file exports. Returns JSON results or short-lived signed download URLs.'
       : 'Exam Studio turns course notes into study notes, flashcards, exams and study handouts for TVET teachers, and writes Word, PDF and CSV files. You (the agent) can write the exam or handout yourself and use these tools to check and export it, or ask the app\'s own AI to generate it. Start with exam_studio_format_guide.',
   });
+
+  // Public, no-auth endpoint: only the five generate-only tools are exposed. Nothing is read
+  // from or written to disk or to any user's data.
+  if (public_) {
+    server.registerTool('exam_studio_generate_notes', {
+      title: 'Generate study notes (public demo)',
+      description: 'Public demo: text is processed to generate output and is not stored. Generate structured study notes from text using the app\'s AI. Input capped at 12,000 characters. Returns JSON only.',
+      inputSchema: { ...PublicSource, title: z.string().optional(), focus: z.string().optional().describe('Optional topic to focus on') },
+      annotations: { readOnlyHint: false, openWorldHint: true },
+    }, tool(async ({ text: t, title, focus }) => {
+      const notes = await generateNotes({ text: t, title, focus });
+      return text({ notes });
+    }));
+
+    server.registerTool('exam_studio_generate_exam', {
+      title: 'Generate an exam (public demo)',
+      description: 'Public demo: text is processed to generate output and is not stored. Generate an exam from text notes using the app\'s AI, including a marking scheme. Input capped at 12,000 characters. Returns JSON only.',
+      inputSchema: { ...PublicSource, title: z.string().optional(), level: z.string().optional(), total_marks: z.number().int().min(10).max(200).optional().describe('Default 100'), types: z.array(z.enum(TYPES)).optional().describe('Default: all types'), essay_count: z.number().int().min(1).max(4).optional().describe('Default 2') },
+      annotations: { readOnlyHint: false, openWorldHint: true },
+    }, tool(async ({ text: t, title, level, total_marks = 100, types = TYPES, essay_count = 2 }) => {
+      const exam = await generateExam({ text: t, title, level, totalMarksTarget: total_marks, types, essayCount: types.includes('essay') ? essay_count : 0, avoid: [] });
+      return text({ exam, total_marks: exam.totalMarks, warnings: exam.warnings, marking_scheme: exam });
+    }));
+
+    server.registerTool('exam_studio_generate_handout', {
+      title: 'Generate a study handout (public demo)',
+      description: 'Public demo: text is processed to generate output and is not stored. Generate a study handout from text notes using the app\'s AI. Input capped at 12,000 characters. Returns JSON only.',
+      inputSchema: { ...PublicSource, title: z.string().optional(), level: z.string().optional(), units: z.array(z.string()).optional().describe('Build only these unit numbers, for example ["1","2"]. Omit for the whole manual.'), include_revision: z.boolean().optional().describe('Default true.'), include_practical: z.boolean().optional().describe('Default true.') },
+      annotations: { readOnlyHint: false, openWorldHint: true },
+    }, tool(async ({ text: t, title, level, units, include_revision = true, include_practical = true }) => {
+      const handout = await generateHandout({ text: t, title, level, units, includeRevision: include_revision, includePractical: include_practical });
+      return text({ handout, warnings: handout.warnings, stats: handout.stats, estimated_pages: handout.estimatedPages });
+    }));
+
+    server.registerTool('exam_studio_generate_flashcards', {
+      title: 'Generate flashcards (public demo)',
+      description: 'Public demo: text is processed to generate output and is not stored. Generate flashcards from text notes using the app\'s AI. Input capped at 12,000 characters. Returns JSON only.',
+      inputSchema: { ...PublicSource, title: z.string().optional(), count: z.number().int().min(5).max(80).optional().describe('Default 30') },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    }, tool(async ({ text: t, title, count = 30 }) => text(await generateCards({ text: t, title, count }))));
+
+    server.registerTool('exam_studio_get_usage', {
+      title: 'Public demo usage',
+      description: 'Public demo: text is processed to generate output and is not stored. Returns the anonymous usage limits for this endpoint.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    }, tool(async () => text({
+      generationsPerDayPerIp: PUBLIC_GENERATIONS_PER_DAY_PER_IP,
+      inputMaxChars: PUBLIC_INPUT_MAX_CHARS,
+      note: 'Signed-in users get higher limits through a personal access token at /mcp.',
+    })));
+
+    return server;
+  }
 
   server.registerTool('exam_studio_format_guide', {
     title: 'Exam format guide',
