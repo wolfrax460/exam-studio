@@ -457,23 +457,60 @@ app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = Strin
 
 // Remote MCP (streamable HTTP) - session-aware, shares tools with the stdio server.
 // Each HTTP session gets its own StreamableHTTPServerTransport + McpServer instance.
-// PATs (est_...) and session JWTs are accepted.
-const mcpTransports = new Map(); // sessionId -> StreamableHTTPServerTransport
-function createTransport(sessionId) {
+// PATs (est_...) and session JWTs are required - no anonymous access.
+// Sessions are bound to the authenticated user; session ids from other users are rejected.
+const mcpTransports = new Map(); // sessionId -> { transport, userId }
+function createTransport(sessionId, userId) {
   const sessionIdFinal = sessionId || crypto.randomUUID();
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => sessionIdFinal,
     onsessionclosed: (id) => { mcpTransports.delete(String(id)); },
   });
-  const server = createMcpServer();
+  const server = createMcpServer({ remote: true, userId });
   server.connect(transport);
-  mcpTransports.set(sessionIdFinal, transport);
+  mcpTransports.set(sessionIdFinal, { transport, userId });
   return transport;
 }
 app.post('/mcp', wrap(async (req, res) => {
+  // Enforce authentication: missing or invalid Bearer => 401 with WWW-Authenticate
+  const header = req.headers?.authorization || '';
+  const token = /^Bearer\s+(.+)$/i.exec(header.trim())?.[1]?.trim() || '';
+  if (!token) {
+    res.set('WWW-Authenticate', 'Bearer resource_metadata="https://examstudio.duckdns.org/.well-known/oauth-protected-resource"');
+    return res.status(401).json({ error: 'invalid_token', message: 'Missing bearer token.' });
+  }
+  let userId;
+  let scopes = [];
+  if (token.startsWith('est_')) {
+    const info = await verifyPatToken(token);
+    if (!info) {
+      res.set('WWW-Authenticate', 'Bearer resource_metadata="https://examstudio.duckdns.org/.well-known/oauth-protected-resource"');
+      return res.status(401).json({ error: 'invalid_token', message: 'Invalid or expired token.' });
+    }
+    userId = info.userId;
+    scopes = info.scopes || [];
+  } else {
+    try {
+      const decoded = verifyToken(token);
+      userId = decoded.sub || decoded.userId;
+      scopes = ['*'];
+    } catch (e) {
+      res.set('WWW-Authenticate', 'Bearer resource_metadata="https://examstudio.duckdns.org/.well-known/oauth-protected-resource"');
+      return res.status(401).json({ error: 'invalid_token', message: 'Invalid session.' });
+    }
+  }
   const sessionId = req.headers['mcp-session-id'] || req.query.session_id;
-  let transport = sessionId && mcpTransports.get(String(sessionId));
-  if (!transport) transport = createTransport(sessionId);
+  // Reject session ids bound to a different user (session hijacking attempt)
+  if (sessionId && mcpTransports.has(String(sessionId))) {
+    const existing = mcpTransports.get(String(sessionId));
+    if (existing.userId !== userId) {
+      res.set('WWW-Authenticate', 'Bearer resource_metadata="https://examstudio.duckdns.org/.well-known/oauth-protected-resource"');
+      return res.status(401).json({ error: 'invalid_token', message: 'Session belongs to another user.' });
+    }
+  }
+  let transportEntry = sessionId && mcpTransports.get(String(sessionId));
+  let transport = transportEntry ? transportEntry.transport : null;
+  if (!transport) transport = createTransport(sessionId, userId);
   await transport.handleRequest(req, res, req.body);
 }));
 

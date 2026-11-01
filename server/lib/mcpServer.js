@@ -155,9 +155,17 @@ ${HANDOUT_GUIDE}
 
 Workflow: exam_studio_read_notes (if the notes are a file) -> write the exam or the handout -> exam_studio_check_exam / exam_studio_check_handout -> fix every warning -> exam_studio_export_exam / exam_studio_export_handout.`;
 
-export function createMcpServer() {
+export function createMcpServer(options = {}) {
+  const remote = Boolean(options.remote);
+  const userId = options.userId || null;
+
+  // Remote users can only provide text input - no file_path, no output_dir (no server file access).
+  const RemoteSource = { text: z.string().describe('The notes as text') };
+
   const server = new McpServer({ name: 'exam-studio', version: pkg.version }, {
-    instructions: 'Exam Studio turns course notes into study notes, flashcards, exams and study handouts for TVET teachers, and writes Word, PDF and CSV files. You (the agent) can write the exam or handout yourself and use these tools to check and export it, or ask the app\'s own AI to generate it. Start with exam_studio_format_guide.',
+    instructions: remote
+      ? 'Remote Exam Studio MCP server. Text-only input: provide notes as text. No file uploads, no file exports. Returns JSON results or short-lived signed download URLs.'
+      : 'Exam Studio turns course notes into study notes, flashcards, exams and study handouts for TVET teachers, and writes Word, PDF and CSV files. You (the agent) can write the exam or handout yourself and use these tools to check and export it, or ask the app\'s own AI to generate it. Start with exam_studio_format_guide.',
   });
 
   server.registerTool('exam_studio_format_guide', {
@@ -166,17 +174,19 @@ export function createMcpServer() {
     annotations: { readOnlyHint: true, idempotentHint: true },
   }, tool(async () => text(GUIDE)));
 
-  server.registerTool('exam_studio_read_notes', {
-    title: 'Read notes from a file',
-    description: 'Extracts the text of a .pdf, .docx, .txt or .md file on this computer (scanned PDFs have no text). Long files are returned in pieces: use next_offset to continue.',
-    inputSchema: { file_path: z.string().describe('Path to the notes file'), offset: z.number().int().min(0).optional(), max_chars: z.number().int().min(1000).max(200000).optional().describe('Default 60000') },
-    annotations: { readOnlyHint: true, idempotentHint: true },
-  }, tool(async ({ file_path, offset = 0, max_chars = 60000 }) => {
-    const full = await readSource({ file_path });
-    const slice = full.slice(offset, offset + max_chars);
-    const next = offset + slice.length;
-    return text({ total_chars: full.length, offset, returned_chars: slice.length, next_offset: next < full.length ? next : null, text: slice });
-  }));
+  if (!remote) {
+    server.registerTool('exam_studio_read_notes', {
+      title: 'Read notes from a file',
+      description: 'Extracts the text of a .pdf, .docx, .txt or .md file on this computer (scanned PDFs have no text). Long files are returned in pieces: use next_offset to continue.',
+      inputSchema: { file_path: z.string().describe('Path to the notes file'), offset: z.number().int().min(0).optional(), max_chars: z.number().int().min(1000).max(200000).optional().describe('Default 60000') },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    }, tool(async ({ file_path, offset = 0, max_chars = 60000 }) => {
+      const full = await readSource({ file_path });
+      const slice = full.slice(offset, offset + max_chars);
+      const next = offset + slice.length;
+      return text({ total_chars: full.length, offset, returned_chars: slice.length, next_offset: next < full.length ? next : null, text: slice });
+    }));
+  }
 
   server.registerTool('exam_studio_check_exam', {
     title: 'Check an exam',
@@ -189,33 +199,35 @@ export function createMcpServer() {
     return text({ ok: warnings.length === 0, layout: stats.layout, total_marks: totalMarks(exam), questions: stats.questions, sections: stats.sections, warnings });
   }));
 
-  server.registerTool('exam_studio_export_exam', {
-    title: 'Export an exam to files',
-    description: 'Writes the exam as a two-column Word paper and/or PDF and/or CSV (for Google Sheets), plus the separate marking scheme. Returns the file paths. Run exam_studio_check_exam first.',
-    inputSchema: { exam: ExamShape, meta: MetaShape, formats: ExamFormats, include_marking_scheme: z.boolean().optional().describe('Default true'), output_dir: OutDir, file_name: z.string().optional().describe('Base file name, default the exam title') },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, tool(async ({ exam, meta, formats = ['docx'], include_marking_scheme = true, output_dir, file_name }) => {
-    const warnings = validateExam(exam, null);
-    const files = await exportExam(exam, meta, formats, include_marking_scheme, outDir(output_dir), file_name);
-    return text({ files, total_marks: totalMarks(exam), warnings });
-  }));
+  if (!remote) {
+    server.registerTool('exam_studio_export_exam', {
+      title: 'Export an exam to files',
+      description: 'Writes the exam as a two-column Word paper and/or PDF and/or CSV (for Google Sheets), plus the separate marking scheme. Returns the file paths. Run exam_studio_check_exam first.',
+      inputSchema: { exam: ExamShape, meta: MetaShape, formats: ExamFormats, include_marking_scheme: z.boolean().optional().describe('Default true'), output_dir: OutDir, file_name: z.string().optional().describe('Base file name, default the exam title') },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    }, tool(async ({ exam, meta, formats = ['docx'], include_marking_scheme = true, output_dir, file_name }) => {
+      const warnings = validateExam(exam, null);
+      const files = await exportExam(exam, meta, formats, include_marking_scheme, outDir(output_dir), file_name);
+      return text({ files, total_marks: totalMarks(exam), warnings });
+    }));
 
-  server.registerTool('exam_studio_export_notes', {
-    title: 'Export study notes to files',
-    description: 'Writes study notes as a Word and/or PDF file. Returns the file paths.',
-    inputSchema: { notes: NotesShape, formats: NotesFormats, output_dir: OutDir, file_name: z.string().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, tool(async ({ notes, formats = ['docx'], output_dir, file_name }) => text({ files: await exportNotes(notes, formats, outDir(output_dir), file_name) })));
+    server.registerTool('exam_studio_export_notes', {
+      title: 'Export study notes to files',
+      description: 'Writes study notes as a Word and/or PDF file. Returns the file paths.',
+      inputSchema: { notes: NotesShape, formats: NotesFormats, output_dir: OutDir, file_name: z.string().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    }, tool(async ({ notes, formats = ['docx'], output_dir, file_name }) => text({ files: await exportNotes(notes, formats, outDir(output_dir), file_name) })));
 
-  server.registerTool('exam_studio_export_handout', {
-    title: 'Export a study handout to files',
-    description: 'Writes a handout as a Word and/or PDF file. Returns the file paths. Run exam_studio_check_handout first.',
-    inputSchema: { handout: z.object({}).passthrough(), formats: NotesFormats, output_dir: OutDir, file_name: z.string().optional() },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, tool(async ({ handout, formats = ['docx'], output_dir, file_name }) => text({
-    files: await exportHandout(handout, formats, outDir(output_dir), file_name),
-    warnings: validateHandout(handout),
-  })));
+    server.registerTool('exam_studio_export_handout', {
+      title: 'Export a study handout to files',
+      description: 'Writes a handout as a Word and/or PDF file. Returns the file paths. Run exam_studio_check_handout first.',
+      inputSchema: { handout: z.object({}).passthrough(), formats: NotesFormats, output_dir: OutDir, file_name: z.string().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    }, tool(async ({ handout, formats = ['docx'], output_dir, file_name }) => text({
+      files: await exportHandout(handout, formats, outDir(output_dir), file_name),
+      warnings: validateHandout(handout),
+    })));
+  }
 
   server.registerTool('exam_studio_check_handout', {
     title: 'Check a study handout',
@@ -229,76 +241,99 @@ export function createMcpServer() {
     estimated_pages: estimateHandoutPages(handout),
   })));
 
+  // Remote generate tools: text input only, no file_path, no output_dir.
+  const genExamSchema = remote ? {
+    ...RemoteSource, title: z.string().optional(), level: z.string().optional(), total_marks: z.number().int().min(10).max(200).optional().describe('Default 100'),
+    types: z.array(z.enum(TYPES)).optional().describe('Default: all types'), essay_count: z.number().int().min(1).max(4).optional().describe('Default 2'),
+  } : {
+    ...Source, title: z.string().optional(), level: z.string().optional(), total_marks: z.number().int().min(10).max(200).optional().describe('Default 100'),
+    types: z.array(z.enum(TYPES)).optional().describe('Default: all types'), essay_count: z.number().int().min(1).max(4).optional().describe('Default 2'),
+    meta: MetaShape, export_formats: ExamFormats, output_dir: OutDir,
+  };
+
   server.registerTool('exam_studio_generate_exam', {
     title: 'Generate an exam with the app\'s AI',
-    description: 'Uses the AI chosen in the Exam Studio app (DeepSeek, Ollama, NVIDIA, a terminal tool, ...) to write an exam from notes. Slow for big papers. Returns the exam JSON and its warnings; optionally also writes files. Skip this tool if you would rather write the exam yourself.',
-    inputSchema: {
-      ...Source, title: z.string().optional(), level: z.string().optional(), total_marks: z.number().int().min(10).max(200).optional().describe('Default 100'),
-      types: z.array(z.enum(TYPES)).optional().describe('Default: all types'), essay_count: z.number().int().min(1).max(4).optional().describe('Default 2'),
-      meta: MetaShape, export_formats: ExamFormats, output_dir: OutDir,
-    },
+    description: remote ? 'Generate an exam from text notes using the app\'s AI. Returns JSON only.' : 'Uses the AI chosen in the Exam Studio app (DeepSeek, Ollama, NVIDIA, a terminal tool, ...) to write an exam from notes. Slow for big papers. Returns the exam JSON and its warnings; optionally also writes files.',
+    inputSchema: genExamSchema,
     annotations: { readOnlyHint: false, openWorldHint: true },
-  }, tool(async ({ text: t, file_path, title, level, total_marks = 100, types = TYPES, essay_count = 2, meta, export_formats, output_dir }) => {
-    const exam = await generateExam({ text: await readSource({ text: t, file_path }), title, level, totalMarksTarget: total_marks, types, essayCount: types.includes('essay') ? essay_count : 0, avoid: [] });
+  }, tool(async ({ text: t, title, level, total_marks = 100, types = TYPES, essay_count = 2, meta }) => {
+    const exam = await generateExam({ text: t, title, level, totalMarksTarget: total_marks, types, essayCount: types.includes('essay') ? essay_count : 0, avoid: [] });
     const out = { exam, total_marks: exam.totalMarks, warnings: exam.warnings };
-    if (export_formats) out.files = await exportExam(exam, { module: title, level, ...meta }, export_formats, true, outDir(output_dir));
     return text(out);
   }));
+
+  const genNotesSchema = remote ? {
+    ...RemoteSource, title: z.string().optional(), focus: z.string().optional().describe('Optional topic to focus on'),
+  } : {
+    ...Source, title: z.string().optional(), focus: z.string().optional().describe('Optional topic to focus on'), export_formats: NotesFormats, output_dir: OutDir,
+  };
 
   server.registerTool('exam_studio_generate_notes', {
     title: 'Generate study notes with the app\'s AI',
-    description: 'Uses the AI chosen in the Exam Studio app to write study notes from course notes. Returns the notes JSON; optionally also writes Word/PDF files.',
-    inputSchema: { ...Source, title: z.string().optional(), focus: z.string().optional().describe('Optional topic to focus on'), export_formats: NotesFormats, output_dir: OutDir },
+    description: remote ? 'Generate structured study notes from text using the app\'s AI. Returns JSON only.' : 'Uses the AI chosen in the Exam Studio app to write study notes from course notes. Returns the notes JSON; optionally also writes Word/PDF files.',
+    inputSchema: genNotesSchema,
     annotations: { readOnlyHint: false, openWorldHint: true },
-  }, tool(async ({ text: t, file_path, title, focus, export_formats, output_dir }) => {
-    const notes = await generateNotes({ text: await readSource({ text: t, file_path }), title, focus });
-    const out = { notes };
-    if (export_formats) out.files = await exportNotes(notes, export_formats, outDir(output_dir));
-    return text(out);
+  }, tool(async ({ text: t, title, focus }) => {
+    const notes = await generateNotes({ text: t, title, focus });
+    return text({ notes });
   }));
+
+  const genFlashcardsSchema = remote ? {
+    ...RemoteSource, title: z.string().optional(), count: z.number().int().min(5).max(80).optional().describe('Default 30'),
+  } : {
+    ...Source, title: z.string().optional(), count: z.number().int().min(5).max(80).optional().describe('Default 30'),
+  };
 
   server.registerTool('exam_studio_generate_flashcards', {
     title: 'Generate flashcards with the app\'s AI',
-    description: 'Uses the AI chosen in the Exam Studio app to write flashcards (front and back) from course notes.',
-    inputSchema: { ...Source, title: z.string().optional(), count: z.number().int().min(5).max(80).optional().describe('Default 30') },
+    description: remote ? 'Generate flashcards from text notes using the app\'s AI. Returns JSON only.' : 'Uses the AI chosen in the Exam Studio app to write flashcards (front and back) from course notes.',
+    inputSchema: genFlashcardsSchema,
     annotations: { readOnlyHint: true, openWorldHint: true },
-  }, tool(async ({ text: t, file_path, title, count = 30 }) => text(await generateCards({ text: await readSource({ text: t, file_path }), title, count }))));
+  }, tool(async ({ text: t, title, count = 30 }) => text(await generateCards({ text: t, title, count }))));
+
+  const genHandoutSchema = remote ? {
+    ...RemoteSource, title: z.string().optional(), level: z.string().optional(),
+    units: z.array(z.string()).optional().describe('Build only these unit numbers, for example ["1","2"]. Omit for the whole manual.'),
+    include_revision: z.boolean().optional().describe('Default true. Set false to leave out the revision questions.'),
+    include_practical: z.boolean().optional().describe('Default true. Set false to leave out the practical assessment task.'),
+  } : {
+    ...Source, title: z.string().optional(), level: z.string().optional(),
+    units: z.array(z.string()).optional().describe('Build only these unit numbers, for example ["1","2"]. Omit for the whole manual.'),
+    include_revision: z.boolean().optional().describe('Default true. Set false to leave out the revision questions.'),
+    include_practical: z.boolean().optional().describe('Default true. Set false to leave out the practical assessment task.'),
+    export_formats: NotesFormats, output_dir: OutDir,
+  };
 
   server.registerTool('exam_studio_generate_handout', {
     title: 'Generate a student study handout with the app\'s AI',
-    description: 'Turns a whole module manual into a study handout: one lesson per indicative content, with key terms, worked examples, diagrams, a memory sheet, revision questions, a practical task and study tips. This is SLOW - it makes one AI call per lesson plus one per unit, so a four-unit manual can take a long time. Returns the handout JSON, its warnings and stats; optionally also writes files.',
-    inputSchema: {
-      ...Source, title: z.string().optional(), level: z.string().optional(),
-      units: z.array(z.string()).optional().describe('Build only these unit numbers, for example ["1","2"]. Omit for the whole manual.'),
-      include_revision: z.boolean().optional().describe('Default true. Set false to leave out the revision questions.'),
-      include_practical: z.boolean().optional().describe('Default true. Set false to leave out the practical assessment task.'),
-      export_formats: NotesFormats, output_dir: OutDir,
-    },
+    description: remote ? 'Generate a study handout from text notes using the app\'s AI. Returns JSON only.' : 'Turns a whole module manual into a study handout: one lesson per indicative content, with key terms, worked examples, diagrams, a memory sheet, revision questions, a practical task and study tips. This is SLOW - it makes one AI call per lesson plus one per unit, so a four-unit manual can take a long time. Returns the handout JSON, its warnings and stats; optionally also writes files.',
+    inputSchema: genHandoutSchema,
     annotations: { readOnlyHint: false, openWorldHint: true },
-  }, tool(async ({ text: t, file_path, title, level, units, include_revision = true, include_practical = true, export_formats, output_dir }) => {
+  }, tool(async ({ text: t, title, level, units, include_revision = true, include_practical = true }) => {
     const handout = await generateHandout({
-      text: await readSource({ text: t, file_path }), title, level, units,
+      text: t, title, level, units,
       includeRevision: include_revision, includePractical: include_practical,
     });
     const out = { handout, warnings: handout.warnings, stats: handout.stats, estimated_pages: handout.estimatedPages };
-    if (export_formats) out.files = await exportHandout(handout, export_formats, outDir(output_dir));
     return text(out);
   }));
 
+  // Library tool: remote is scoped to the authenticated user.
   server.registerTool('exam_studio_library', {
     title: 'Exam Studio library',
-    description: 'The app\'s saved library of notes, exams and flashcards. action "list" shows items, "get" returns one by id, "save" stores a new one (kind: notes, exam or flashcards).',
+    description: remote ? 'Your saved library of notes, exams and flashcards. List, get, or save items (scoped to your account).' : 'The app\'s saved library of notes, exams and flashcards. action "list" shows items, "get" returns one by id, "save" stores a new one (kind: notes, exam or flashcards).',
     inputSchema: { action: z.enum(['list', 'get', 'save']), id: z.string().optional(), kind: z.enum(['notes', 'exam', 'flashcards', 'handout']).optional(), title: z.string().optional(), data: z.record(z.any()).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false },
   }, tool(async ({ action, id, kind, title, data }) => {
-    if (action === 'list') return text(await listItems());
+    if (!userId) throw new Error('Not authenticated.');
+    if (action === 'list') return text(await listItems(userId));
     if (action === 'get') {
-      const item = id && (await getItem(id));
+      const item = id && (await getItem(id, userId));
       if (!item) throw new Error('No library item with that id.');
       return text(item);
     }
     if (!kind || !data) throw new Error('To save, give "kind" and "data".');
-    return text(await saveItem({ kind, title: String(title || data.title || 'Untitled').slice(0, 120), data }));
+    return text(await saveItem({ kind, title: String(title || data.title || 'Untitled').slice(0, 120), data, userId }));
   }));
 
   server.registerResource('format-guide', 'exam-studio://format-guide', { title: 'Exam Studio format guide', description: 'Exam, study notes and study handout JSON format and style rules', mimeType: 'text/markdown' },
