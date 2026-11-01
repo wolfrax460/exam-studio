@@ -170,7 +170,7 @@ export default function App() {
   const refreshHealth = (h) => { if (h) setHealth(h); };
 
   // ---------------------------------------------------------------- API tokens
-  const loadTokens = () => get('/api/tokens')
+  const loadTokens = () => get('/tokens')
     .then((d) => setTokens(Array.isArray(d?.items) ? d.items : []))
     .catch(() => setTokens([]));
 
@@ -179,7 +179,7 @@ export default function App() {
     setError('');
     setTokenBusy(true);
     try {
-      const created = await post('/api/tokens', { name: newTokenName.trim(), scopes: ['generate:write', 'library:read', 'library:write', 'export:read'], expiresInDays: 90 });
+      const created = await post('/tokens', { name: newTokenName.trim(), scopes: ['generate:write', 'library:read', 'library:write', 'export:read'], expiresInDays: 90 });
       setNewToken(created.token);
       setNewTokenName('');
       setTokens([...tokens, { ...created, token: created.token }]);
@@ -194,7 +194,7 @@ export default function App() {
   const revokeToken = async (id) => {
     setError('');
     try {
-      await del(`/api/tokens/${id}`);
+      await del(`/tokens/${id}`);
       setTokens(tokens.filter((t) => t.id !== id));
       flash('Token revoked.');
     } catch (e) {
@@ -248,7 +248,7 @@ export default function App() {
       return;
     }
     try {
-      const r = await post('/api/notes/detect-structure', { text, title: project.module });
+      const r = await post('/notes/detect-structure', { text, title: project.module });
       setDetectedStructure(r.structure);
       setStructureMode('pasted');
       // Auto-select the first module if detected

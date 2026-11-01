@@ -9,11 +9,11 @@ const TOKEN_KEY = 'token';
 const USER_KEY = 'user';
 
 export async function register({ email, password, name }) {
-  return post('/api/auth/register', { email, password, name }, 'Could not create your account.');
+  return post('/auth/register', { email, password, name }, 'Could not create your account.');
 }
 
 export async function login({ email, password }) {
-  return post('/api/auth/login', { email, password }, 'Could not sign you in.');
+  return post('/auth/login', { email, password }, 'Could not sign you in.');
 }
 
 async function post(path, body, fallbackMessage) {

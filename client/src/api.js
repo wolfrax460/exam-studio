@@ -2,6 +2,12 @@ import { authenticatedFetch, clearSession } from './auth.js';
 
 // One place that turns a failed request into a useful Error.
 async function request(path, { json, ...opts } = {}) {
+  // Guard: api.js already prepends "/api", so a path that starts with "/api" would
+  // produce "/api/api/..." and 404. Fail fast with a clear message instead.
+  if (/^\/api\//.test(path)) {
+    throw Object.assign(new Error(`Double "/api" prefix in request path: ${path}. Use relative paths like "/tokens" not "/api/tokens".`), { status: 0 });
+  }
+
   let res;
   try {
     res = await authenticatedFetch(`/api${path}`, {
