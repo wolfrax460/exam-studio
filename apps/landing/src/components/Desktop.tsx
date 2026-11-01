@@ -95,6 +95,7 @@ export default function Desktop() {
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <span className="px-3 py-1 rounded-full bg-green-500/15 text-green-400 text-sm border border-green-500/30">Version {version}</span>
+          <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-sm border border-amber-500/30">Beta</span>
             <span className="text-sm opacity-70">{releaseDate}</span>
           </div>
           <h3 className="text-xl font-semibold mb-3">Download for {os === 'mac' ? 'Mac' : os === 'linux' ? 'Linux' : 'Windows'}</h3>
