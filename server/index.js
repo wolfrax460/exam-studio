@@ -1373,6 +1373,14 @@ app.use('/downloads', (_req, _res, next) => next(httpError(404, 'Not found.')));
 app.use('/mcp', (_req, _res, next) => next(httpError(404, 'Remote MCP is not available yet.')));
 app.use('/api', (_req, _res, next) => next(httpError(404, 'Not found.')));
 
+// Unknown paths that look like API endpoints should return JSON 404, never SPA index.html
+app.use((req, res, next) => {
+  if (req.path.startsWith('/.well-known/')) {
+    return res.status(404).type('application/json; charset=utf-8').json({ error: 'Not found.' });
+  }
+  next();
+});
+
 const dist = path.resolve(__dirname, '../client/dist');
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
