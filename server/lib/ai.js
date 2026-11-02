@@ -620,22 +620,30 @@ export async function generateSectionsExam({ text, title, level, totalMarksTarge
   const target = Number(totalMarksTarget) || 100;
   const plan = buildSectionPlan(target, sanitizeSectionPlan(sectionPlan) || DEFAULT_SECTION_PLAN);
   const programming = looksLikeProgramming(text, title);
-  const sections = [];
-
-  for (const spec of plan) {
-    const count = sectionItemCount(spec);
-    const itemMarks = spec.kind === 'structured' ? structuredItemMarks(spec.marks) : null;
-    const items = await generateSectionItems({ spec, count, itemMarks, programming, title, level, notes: text, avoid, variant });
-    sections.push({
-      id: spec.id,
-      kind: spec.kind,
-      title: spec.title || String(SECTION_KINDS[spec.kind] || spec.kind).toUpperCase(),
-      instruction: '',
-      marksPerItem: spec.kind === 'structured' ? 0 : spec.marksPerItem,
-      marks: spec.marks,
-      items,
-    });
-  }
+  const sections = new Array(plan.length);
+  let next = 0;
+  const work = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= plan.length) return;
+      const spec = plan[index];
+      const count = sectionItemCount(spec);
+      const itemMarks = spec.kind === 'structured' ? structuredItemMarks(spec.marks) : null;
+      const items = await generateSectionItems({ spec, count, itemMarks, programming, title, level, notes: text, avoid, variant });
+      sections[index] = {
+        id: spec.id,
+        kind: spec.kind,
+        title: spec.title || String(SECTION_KINDS[spec.kind] || spec.kind).toUpperCase(),
+        instruction: '',
+        marksPerItem: spec.kind === 'structured' ? 0 : spec.marksPerItem,
+        marks: spec.marks,
+        items,
+      };
+    }
+  };
+  // A few independent sections at a time keeps each provider call short while finishing the
+  // paper well before proxy and browser timeouts. Array indices preserve paper order.
+  await Promise.all(Array.from({ length: Math.min(3, plan.length) }, work));
 
   const exam = {
     title: title || `${moduleCode || 'Module'} end of module examination`,
