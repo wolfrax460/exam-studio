@@ -58,9 +58,9 @@ export function getCachedAIConfig() { return aiConfigCache; }
 export function getCachedAIKey() { return aiConfigCacheDecryptedKey; }
 
 // ---- AI health tracking (last success, last error, latency) ----
-let aiHealth = { lastSuccess: null, lastError: null, lastLatency: null, lastErrorMessage: null };
-export function recordAISuccess(latencyMs) { aiHealth.lastSuccess = new Date().toISOString(); aiHealth.lastLatency = latencyMs; }
-export function recordAIFailure(error) { aiHealth.lastError = new Date().toISOString(); aiHealth.lastErrorMessage = String(error?.message || error); }
+const aiHealth = { lastSuccessAt: null, lastLatency: null, lastErrorAt: null, lastError: null };
+export function recordAISuccess(latencyMs) { aiHealth.lastSuccessAt = new Date().toISOString(); aiHealth.lastLatency = Number(latencyMs) || null; }
+export function recordAIFailure(err) { aiHealth.lastErrorAt = new Date().toISOString(); aiHealth.lastError = String((err && err.message) || err || 'unknown').slice(0, 300); }
 export function getAIHealth() { return { ...aiHealth }; }
 
 function newId() { return new mongoose.Types.ObjectId().toString(); }

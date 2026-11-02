@@ -176,7 +176,7 @@ export function createMcpServer(options = {}) {
     name: 'exam-studio',
     version: pkg.version,
     title: 'Exam Studio',
-    icon: { type: 'url', url: 'https://examstudio.duckdns.org/icon.svg' },
+    icons: [{ src: 'https://examstudio.duckdns.org/icon-256.png', mimeType: 'image/png', sizes: ['256x256'] }],
   }, {
     instructions: remote
       ? 'Remote Exam Studio MCP server. Text-only input: provide notes as text. No file uploads, no file exports. Returns JSON results or short-lived signed download URLs.'

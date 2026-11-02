@@ -118,13 +118,10 @@ export default function AITools() {
   };
 
   const mcpConfigs = {
-    'Claude Desktop': `{
+    'Claude (No sign-in)': `{
   "mcpServers": {
     "exam-studio": {
-      "url": "https://examstudio.duckdns.org/mcp",
-      "headers": {
-        "Authorization": "Bearer es_live_YOUR_PERSONAL_ACCESS_TOKEN"
-      }
+      "url": "https://examstudio.duckdns.org/mcp/est_YOUR_PERSONAL_ACCESS_TOKEN"
     }
   }
 }`,
@@ -133,7 +130,7 @@ export default function AITools() {
     "exam-studio": {
       "url": "https://examstudio.duckdns.org/mcp",
       "headers": {
-        "Authorization": "Bearer es_live_YOUR_PERSONAL_ACCESS_TOKEN"
+        "Authorization": "Bearer est_YOUR_PERSONAL_ACCESS_TOKEN"
       }
     }
   }
@@ -143,7 +140,7 @@ export default function AITools() {
     "exam-studio": {
       "url": "https://examstudio.duckdns.org/mcp",
       "headers": {
-        "Authorization": "Bearer es_live_YOUR_PERSONAL_ACCESS_TOKEN"
+        "Authorization": "Bearer est_YOUR_PERSONAL_ACCESS_TOKEN"
       }
     }
   }
@@ -160,14 +157,10 @@ export default function AITools() {
   return (
     <section id="ai-tools" className="section container-x">
       {/* Heading row: badge, heading, subtitle stacked properly */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-6">
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="px-3 py-1 rounded-full bg-green-500/15 text-green-400 text-sm border border-green-500/30">Live</span>
-        </div>
-        <div>
-          <h2 className="heading">API &amp; MCP</h2>
-          <p className="sub">Generate exams, notes, handouts and flashcards from your own tools, and connect AI assistants (Claude, ChatGPT, DeepSeek, Cursor, opencode).</p>
-        </div>
+      <div className="mb-6">
+        <span className="inline-block px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 text-sm border border-amber-500/30 mb-3">Beta</span>
+        <h2 className="heading">API &amp; MCP</h2>
+        <p className="sub mt-2">Generate exams, notes, handouts and flashcards from your own tools, and connect AI assistants (Claude, ChatGPT, DeepSeek, Cursor, opencode).</p>
       </div>
 
       {/* Quick facts cards */}
@@ -211,6 +204,11 @@ export default function AITools() {
                   {Object.entries(mcpConfigs).map(([name, cfg]) => (
                     <button key={name} onClick={() => copy(cfg, name)} className="btn btn-ghost btn-small text-xs" title={`Copy ${name} config`}>{copied === name ? 'Copied' : 'Copy ' + name}</button>
                   ))}
+                </div>
+                <div className="mt-4 text-sm space-y-1 opacity-80">
+                  <p><strong>Claude:</strong> add a custom connector with authentication <strong>No sign-in</strong> and URL <code>https://examstudio.duckdns.org/mcp/est_YOUR_PERSONAL_ACCESS_TOKEN</code>.</p>
+                  <p><strong>ChatGPT:</strong> add a connector with authentication <strong>No authentication</strong> and the same key-in-path URL.</p>
+                  <p>Tools that support headers can instead use <code>Authorization: Bearer est_YOUR_PERSONAL_ACCESS_TOKEN</code> with <code>https://examstudio.duckdns.org/mcp</code>.</p>
                 </div>
               </div>
             ) : (

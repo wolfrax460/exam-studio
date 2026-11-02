@@ -121,7 +121,7 @@ describe('POST /mcp/public (no auth)', () => {
 });
 
 describe('POST /mcp (still requires a token)', () => {
-  it('returns 401 with WWW-Authenticate without a bearer token', async () => {
+  it('returns 401 without WWW-Authenticate without a bearer token', async () => {
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     const response = await fetch(`${api.base}/mcp`, {
       method: 'POST',
@@ -129,6 +129,6 @@ describe('POST /mcp (still requires a token)', () => {
       body,
     });
     assert.equal(response.status, 401);
-    assert.ok(response.headers.get('www-authenticate'), '/mcp must send WWW-Authenticate');
+    assert.equal(response.headers.get('www-authenticate'), null, '/mcp must NOT send WWW-Authenticate (API-key-only auth)');
   });
 });

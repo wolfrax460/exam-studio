@@ -678,13 +678,23 @@ export default function App() {
             </div>
 
             {newToken && (
-              <div className="settings">
-                <label className="field grow">
-                  <span>Copy this token (shown once)</span>
-                  <input className="mono" readOnly value={newToken} onClick={(e) => { e.target.select(); document.execCommand('copy'); flash('Token copied.'); }} />
-                </label>
-                <button className="link" onClick={() => setNewToken(null)}>Dismiss</button>
-              </div>
+              <>
+                <div className="settings">
+                  <label className="field grow">
+                    <span>Copy this token (shown once)</span>
+                    <input className="mono" readOnly value={newToken} onClick={(e) => { e.target.select(); document.execCommand('copy'); flash('Token copied.'); }} />
+                  </label>
+                  <button className="link" onClick={() => setNewToken(null)}>Dismiss</button>
+                </div>
+                <div className="settings">
+                  <label className="field grow">
+                    <span>MCP connector URL (paste into Claude or ChatGPT)</span>
+                    <input className="mono" readOnly value={`https://examstudio.duckdns.org/mcp/${newToken}`} onClick={(e) => { e.target.select(); document.execCommand('copy'); flash('Connector URL copied.'); }} />
+                  </label>
+                  <button className="link" onClick={() => { navigator.clipboard.writeText(`https://examstudio.duckdns.org/mcp/${newToken}`); flash('Connector URL copied.'); }}>Copy</button>
+                </div>
+                <p className="hint warn">Anyone with this URL can use your account. Revoke the key if it leaks.</p>
+              </>
             )}
 
             <h3>Existing tokens</h3>
