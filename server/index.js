@@ -169,48 +169,67 @@ async function checkAndRecordGeneration(userId) {
   await initStorage();
   const windowMs = MCP_WINDOW_HOURS * 3600 * 1000;
   const now = Date.now();
-  const windowStart = new Date(Math.floor(now / windowMs) * windowMs); // align to window boundary
-  const resetsAt = new Date(windowStart.getTime() + windowMs);
 
   if (storageMode() === 'mongo') {
-    // Atomic increment only if under limit.
-    const result = await McpQuota.updateOne(
-      { userId, windowStart, count: { $lt: MCP_WINDOW_LIMIT } },
-      { $inc: { count: 1 }, $setOnInsert: { createdAt: new Date() } },
-      { upsert: true }
-    );
-    if (result.modifiedCount === 0) {
-      const doc = await McpQuota.findOne({ userId, windowStart }).lean();
-      const used = doc ? doc.count : 0;
+    let current = await McpQuota.findOne({ userId }).sort({ windowStart: -1 }).lean();
+    let windowStart = current ? new Date(current.windowStart) : new Date(now);
+    if (!current || windowStart.getTime() + windowMs <= now) {
+      windowStart = new Date(now);
+      if (current) {
+        await McpQuota.updateOne({ _id: current._id }, { $set: { windowStart, count: 0 } });
+      }
+    }
+    const resetsAt = new Date(windowStart.getTime() + windowMs);
+    let result;
+    try {
+      result = await McpQuota.findOneAndUpdate(
+        { userId, windowStart, count: { $lt: MCP_WINDOW_LIMIT } },
+        { $inc: { count: 1 }, $setOnInsert: { createdAt: new Date() } },
+        { upsert: true, new: true }
+      );
+    } catch (error) {
+      if (error?.code === 11000) {
+        throw httpError(429, {
+          error: 'usage_limit_reached',
+          message: `You've used ${MCP_WINDOW_LIMIT} of ${MCP_WINDOW_LIMIT} generations. Resets in ${formatRetryAfter(windowStart, now)}.`,
+          limit: MCP_WINDOW_LIMIT, used: MCP_WINDOW_LIMIT, windowHours: MCP_WINDOW_HOURS,
+          windowStart, resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - now) / 1000)),
+        });
+      }
+      throw error;
+    }
+    const used = result?.count || 0;
+    if (!result || used > MCP_WINDOW_LIMIT) {
       throw httpError(429, {
         error: 'usage_limit_reached',
-        message: `You've used ${used} of ${MCP_WINDOW_LIMIT} generations. Resets in ${formatRetryAfter(windowStart, now)}.`,
-        limit: MCP_WINDOW_LIMIT,
-        used,
-        windowHours: MCP_WINDOW_HOURS,
-        windowStart,
-        resetsAt,
-        retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - now) / 1000)),
+        message: `You've used ${MCP_WINDOW_LIMIT} of ${MCP_WINDOW_LIMIT} generations. Resets in ${formatRetryAfter(windowStart, now)}.`,
+        limit: MCP_WINDOW_LIMIT, used: MCP_WINDOW_LIMIT, windowHours: MCP_WINDOW_HOURS,
+        windowStart, resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - now) / 1000)),
       });
     }
-    return { ok: true, used: 1, limit: MCP_WINDOW_LIMIT, windowHours: MCP_WINDOW_HOURS, windowStart, resetsAt };
+    return { ok: true, used, limit: MCP_WINDOW_LIMIT, windowHours: MCP_WINDOW_HOURS, windowStart, resetsAt };
   }
 
   // File-store fallback.
-  let doc = mcpQuotaFallbackGet(userId, windowStart);
-  if (!doc || doc.expiresAt <= Date.now()) {
-    doc = { value: 0, expiresAt: Date.now() + MCP_QUOTA_TTL_MS };
+  let key = null;
+  let doc = null;
+  for (const [candidate, entry] of mcpQuotaFallback) {
+    if (!candidate.startsWith(`${userId}:`)) continue;
+    if (entry.expiresAt <= Date.now()) continue;
+    if (!doc || entry.expiresAt > doc.expiresAt) { doc = entry; key = candidate; }
   }
+  let windowStart = doc ? new Date(Number(key.split(':').pop())) : new Date(now);
+  if (!doc || windowStart.getTime() + windowMs <= now) {
+    windowStart = new Date(now);
+    doc = { value: 0, expiresAt: now + MCP_QUOTA_TTL_MS };
+  }
+  const resetsAt = new Date(windowStart.getTime() + windowMs);
   if (doc.value >= MCP_WINDOW_LIMIT) {
     throw httpError(429, {
       error: 'usage_limit_reached',
       message: `You've used ${doc.value} of ${MCP_WINDOW_LIMIT} generations. Resets in ${formatRetryAfter(windowStart, now)}.`,
-      limit: MCP_WINDOW_LIMIT,
-      used: doc.value,
-      windowHours: MCP_WINDOW_HOURS,
-      windowStart,
-      resetsAt,
-      retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - now) / 1000)),
+      limit: MCP_WINDOW_LIMIT, used: doc.value, windowHours: MCP_WINDOW_HOURS,
+      windowStart, resetsAt, retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - now) / 1000)),
     });
   }
   mcpQuotaFallbackSet(userId, windowStart, doc.value + 1, MCP_QUOTA_TTL_MS);
@@ -221,13 +240,16 @@ async function checkAndRecordGeneration(userId) {
 async function publicRefundGeneration(userId) {
   await initStorage();
   const windowMs = MCP_WINDOW_HOURS * 3600 * 1000;
-  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
   if (storageMode() === 'mongo') {
-    await McpQuota.updateOne({ userId, windowStart, count: { $gt: 0 } }, { $inc: { count: -1 } }).catch(() => {});
+    const current = await McpQuota.findOne({ userId }).sort({ windowStart: -1 });
+    if (current && new Date(current.windowStart).getTime() + windowMs > Date.now() && current.count > 0) {
+      await McpQuota.updateOne({ _id: current._id }, { $inc: { count: -1 } }).catch(() => {});
+    }
   } else {
-    const entry = mcpQuotaFallbackGet(userId, windowStart);
-    if (entry && entry.value > 0) {
-      mcpQuotaFallbackSet(userId, windowStart, entry.value - 1, MCP_QUOTA_TTL_MS);
+    for (const [key, entry] of mcpQuotaFallback) {
+      if (!key.startsWith(`${userId}:`) || entry.value <= 0 || entry.expiresAt <= Date.now()) continue;
+      mcpQuotaFallback.set(key, { ...entry, value: entry.value - 1 });
+      break;
     }
   }
 }
