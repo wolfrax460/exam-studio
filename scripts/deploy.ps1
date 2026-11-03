@@ -3,7 +3,7 @@
 # Usage: .\scripts\deploy.ps1 [-Files "server/index.js,server/lib/mcpServer.js"]
 
 param(
-    [string]$Files = "server/index.js,server/lib/mcpServer.js,server/lib/ai.js,server/lib/adminStore.js,server/lib/models/McpQuota.js,server/assets/icon-256.png,server/assets/favicon.ico",
+    [string]$Files = "server/index.js,server/lib/mcpServer.js,server/lib/ai.js,server/lib/adminStore.js,server/lib/providers.js,server/lib/errors.js,server/lib/ssrf.js,server/lib/userAISettings.js,server/lib/userAiApi.js,server/lib/examTake.js,server/lib/models/McpQuota.js,server/lib/models/ExamPublication.js,server/lib/models/ExamAttempt.js,server/assets/icon-256.png,server/assets/favicon.ico",
     [string]$SshKey = $env:EXAM_STUDIO_SSH_KEY,
     [string]$HostName = $env:EXAM_STUDIO_HOST
 )

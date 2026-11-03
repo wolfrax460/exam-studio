@@ -23,9 +23,12 @@ import {
   generateToken, verifyToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
 } from './lib/auth.js';
 import { updateSettings, getSettings } from './lib/settings.js';
-import { PROVIDERS, activeProviderId, providerCatalog } from './lib/providers.js';
+import { PROVIDERS, activeProviderId, providerCatalog, runWithUserAI, resolve as resolveProvider } from './lib/providers.js';
 import * as admin from './lib/adminStore.js';
 import { verifyPatToken } from './lib/adminStore.js';
+import { getUserAISettings, getPublicUserAISettings, saveUserAISettings, deleteUserAISettings } from './lib/userAISettings.js';
+import { listProviderModelIds, testProviderConnection } from './lib/userAiApi.js';
+import { assertSafeBaseURL } from './lib/ssrf.js';
 import * as mailer from './lib/mailer.js';
 import PublicQuota from './lib/models/PublicQuota.js';
 import McpQuota from './lib/models/McpQuota.js';
@@ -35,6 +38,9 @@ import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
 import { createMcpServer, PUBLIC_INPUT_MAX_CHARS } from './lib/mcpServer.js';
+import ExamPublication from './lib/models/ExamPublication.js';
+import ExamAttempt from './lib/models/ExamAttempt.js';
+import { studentExam, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective } from './lib/examTake.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
@@ -95,6 +101,15 @@ app.use((_req, res, next) => {
 });
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// Load a signed-in user's own AI settings and make them visible to the provider resolver for
+// the whole downstream async chain. No request runs without a context, so this is opt-in per route.
+const withUserAI = wrap(async (req, res, next) => {
+  let settings = null;
+  if (req.user?.id) settings = await getUserAISettings(req.user.id).catch(() => null);
+  req.userAI = settings;
+  return runWithUserAI(settings, next);
+});
 
 // MCP endpoints (Streamable HTTP) need cross-origin access from AI connectors
 // (ChatGPT, Claude, etc.) and must never leak raw IPs or secrets in logs.
@@ -252,6 +267,31 @@ async function publicRefundGeneration(userId) {
       break;
     }
   }
+}
+
+async function currentQuotaStatus(userId) {
+  await initStorage();
+  const windowMs = MCP_WINDOW_HOURS * 3600 * 1000;
+  let windowStart = new Date();
+  let used = 0;
+  if (storageMode() === 'mongo') {
+    const doc = await McpQuota.findOne({ userId }).sort({ windowStart: -1 }).lean();
+    if (doc && new Date(doc.windowStart).getTime() + windowMs > Date.now()) {
+      windowStart = new Date(doc.windowStart);
+      used = doc.count || 0;
+    }
+  } else {
+    for (const [key, entry] of mcpQuotaFallback) {
+      if (!key.startsWith(`${userId}:`) || entry.expiresAt <= Date.now()) continue;
+      if (entry.value > used) { used = entry.value; windowStart = new Date(Number(key.split(':').pop())); }
+    }
+  }
+  const resetsAt = new Date(windowStart.getTime() + windowMs);
+  return {
+    limit: MCP_WINDOW_LIMIT, used, remaining: Math.max(0, MCP_WINDOW_LIMIT - used),
+    windowHours: MCP_WINDOW_HOURS, windowStart, resetsAt,
+    retryAfterSeconds: Math.max(1, Math.ceil((resetsAt.getTime() - Date.now()) / 1000)),
+  };
 }
 
 function formatRetryAfter(windowStart, now) {
@@ -487,7 +527,10 @@ const requestIsLocal = (req) => {
   const ip = normalizeIp(req.ip || req.socket?.remoteAddress);
   return ip === '::1' || ip === 'localhost' || ip.startsWith('127.');
 };
-const canConfigure = (req) => requestIsLocal(req) || process.env.EXAM_STUDIO_ALLOW_REMOTE_SETTINGS === '1';
+// True hosted servers must never unlock the server-wide defaults just because Caddy connects
+// from loopback. The admin role is the only remote path; localhost remains for desktop use.
+const isHostedServer = Boolean(process.env.FRONTEND_URL || process.env.EXAM_STUDIO_HOSTED === '1' || process.env.NODE_ENV === 'production');
+const canConfigure = (req) => Boolean(req.user?.role === 'admin') || (!isHostedServer && requestIsLocal(req));
 
 const settingsPayload = (req) => {
   const source = updateSource();
@@ -495,7 +538,9 @@ const settingsPayload = (req) => {
   return {
     active: activeProviderId(),
     canChange: canConfigure(req),
-    providers: providerCatalog({ requestIsLocal: requestIsLocal(req) }),
+    isAdmin: req.user?.role === 'admin',
+    signedIn: Boolean(req.user),
+    providers: providerCatalog({ requestIsLocal: requestIsLocal(req), isAdmin: req.user?.role === 'admin' }),
     update: {
       repo: String(saved.repo || ''),
       feedUrl: String(saved.feedUrl || ''),
@@ -748,7 +793,8 @@ app.get('/api/v1/openapi.json', wrap(async (_req, res) => {
   res.json(OPENAPI_SPEC);
 }));
 app.use('/api/v1', authenticateAny);
-app.get('/api/v1/me/quota', wrap(async (req, res) => { res.json(await admin.getUserPlan(req.user.id) ? { plan: await admin.getUserPlan(req.user.id) } : {}); }));
+app.use('/api/v1', withUserAI);
+app.get('/api/v1/me/quota', wrap(async (req, res) => { res.json({ plan: await admin.getUserPlan(req.user.id), quota: await currentQuotaStatus(req.user.id), ownProvider: Boolean(req.userAI?.apiKey) }); }));
 app.get('/api/v1/library', wrap(async (req, res) => { const items = await listItems(req.user.id); res.json({ items }); }));
 app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = String(req.query.text || ''); const structure = detectStructure(text, req.query.title); res.json({ structure }); }));
 
@@ -757,6 +803,22 @@ app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = Strin
 // PATs (est_...) and session JWTs are required - no anonymous access.
 // Sessions are bound to the authenticated user; session ids from other users are rejected.
 const mcpTransports = new Map(); // sessionId -> { transport, userId }
+// One generation at a time per user. This protects the shared provider key and the 300 MB
+// service memory limit from overlapping long exams; queued requests still get their own result.
+const mcpUserLocks = new Map();
+async function withUserGenerationLock(userId, fn) {
+  const previous = mcpUserLocks.get(String(userId)) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const current = previous.then(() => gate);
+  mcpUserLocks.set(String(userId), current);
+  await previous;
+  try { return await fn(); }
+  finally {
+    release();
+    if (mcpUserLocks.get(String(userId)) === current) mcpUserLocks.delete(String(userId));
+  }
+}
 function createTransport(sessionId, userId) {
   const sessionIdFinal = sessionId || crypto.randomUUID();
   const transport = new StreamableHTTPServerTransport({
@@ -1056,8 +1118,10 @@ async function mcpHandler(req, res) {
   let transportEntry = sessionId && mcpTransports.get(String(sessionId));
   let transport = transportEntry ? transportEntry.transport : null;
   if (!transport) transport = createTransport(sessionId, userId);
+  const userAI = await getUserAISettings(userId).catch(() => null);
   try {
-    await transport.handleRequest(req, res, req.body);
+    const run = () => runWithUserAI(userAI, async () => transport.handleRequest(req, res, req.body));
+    await (isGeneration ? withUserGenerationLock(userId, run) : run());
   } catch (e) {
     if (isGeneration) await publicRefundGeneration(userId);
     throw e;
@@ -1066,19 +1130,63 @@ async function mcpHandler(req, res) {
 
 app.post('/api/v1/generate/handout', wrap(async (req, res) => {
   const text = notesFrom(req.body);
-  await admin.enforceLimits(req.user.id, 'handout', text);
+  if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'handout', text);
+  await checkAndRecordGeneration(req.user.id);
   const started = Date.now();
   try {
     const handout = await generateHandout({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), includeRevision: req.body?.includeRevision !== false, includePractical: req.body?.includePractical !== false });
       try { admin.recordAISuccess(Date.now() - started); } catch {}
       try { await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(text.length / 4), success: true }); } catch {}
       res.json(handout);
-  } catch (e) { try { admin.recordAIFailure(e); } catch {} throw e; }
+  } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
+}));
+
+app.post('/api/v1/generate/notes', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'notes', text);
+  await checkAndRecordGeneration(req.user.id);
+  const started = Date.now();
+  try {
+    const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+    try { admin.recordAISuccess(Date.now() - started); } catch {}
+    try { await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true }); } catch {}
+    res.json(notes);
+  } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
+}));
+
+app.post('/api/v1/generate/flashcards', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'flashcards', text);
+  await checkAndRecordGeneration(req.user.id);
+  const started = Date.now();
+  try {
+    const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
+    try { admin.recordAISuccess(Date.now() - started); } catch {}
+    try { await admin.recordUsage({ userId: req.user.id, taskType: 'flashcards', estimatedTokens: Math.ceil(text.length / 4), success: true }); } catch {}
+    res.json(cards);
+  } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
+}));
+
+app.post('/api/v1/generate/exam', wrap(async (req, res) => {
+  const text = notesFrom(req.body);
+  if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'exam', text);
+  await checkAndRecordGeneration(req.user.id);
+  const started = Date.now();
+  try {
+    const exam = await generateExam({
+      text, title: s(req.body?.title, 120), level: s(req.body?.level, 20),
+      types: Array.isArray(req.body?.types) ? req.body.types : ['mcq'],
+      totalMarksTarget: int(req.body?.totalMarks, 100, 10, 200),
+    });
+    try { admin.recordAISuccess(Date.now() - started); } catch {}
+    try { await admin.recordUsage({ userId: req.user.id, taskType: 'exam', estimatedTokens: Math.ceil(text.length / 4), success: true }); } catch {}
+    res.json(exam);
+  } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
 // ---------------------------------------------------------------- protected routes
-app.use('/api', authenticateUser);
-app.use('/api', generationRateLimit);
+app.use('/api', (req, res, next) => (req.path.startsWith('/take') ? next() : authenticateUser(req, res, next)));
+app.use('/api', (req, res, next) => (req.path.startsWith('/take') ? next() : generationRateLimit(req, res, next)));
 
 // Personal access tokens
 app.get('/api/tokens', wrap(async (req, res) => {
@@ -1156,9 +1264,9 @@ app.post('/api/notes/detect-structure', wrap(async (req, res) => {
   res.json({ structure, message: 'Structure detected successfully.' });
 }));
 // ---------------------------------------------------------------- generate
-app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const text = notesFrom(req.body);
-  if (req.user) { await admin.enforceLimits(req.user.id, 'notes', text); }
+  if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'notes', text); }
   const started = Date.now();
   try {
     const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
@@ -1167,9 +1275,9 @@ app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, wrap(as
   } catch (e) { try { if (req.user) admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
-app.post('/api/flashcards/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+app.post('/api/flashcards/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const text = notesFrom(req.body);
-  if (req.user) { await admin.enforceLimits(req.user.id, 'flashcards', text); }
+  if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'flashcards', text); }
   const started = Date.now();
   try {
     const cards = await generateCards({ text, title: s(req.body?.title, 120), count: int(req.body?.count, 30, 5, 80) });
@@ -1178,9 +1286,9 @@ app.post('/api/flashcards/generate', generateLimit, optionalAuthenticateUser, wr
   } catch (e) { try { if (req.user) admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
-app.post('/api/exams/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+app.post('/api/exams/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const text = notesFrom(req.body);
-  if (req.user) { await admin.enforceLimits(req.user.id, 'exam', text); }
+  if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'exam', text); }
   const layout = req.body?.layout === 'classic' ? 'classic' : 'sections-a-e';
   const totalMarksTarget = int(req.body?.totalMarks, 100, 10, 200);
   const avoid = (Array.isArray(req.body?.avoid) ? req.body.avoid : []).slice(0, 60).map((a) => s(a, 200)).filter(Boolean);
@@ -1322,11 +1430,11 @@ function rememberHandoutStep(jobId, userId, step) {
   }
 }
 
-app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const jobId = s(req.body?.jobId, 60);
   const units = (Array.isArray(req.body?.units) ? req.body.units : []).map((unit) => s(unit, 10)).filter(Boolean);
   const handoutText = notesFrom(req.body);
-  if (req.user) { await admin.enforceLimits(req.user.id, 'handout', handoutText); }
+  if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'handout', handoutText); }
   const job = jobId ? { userId: req.userId, steps: [], startedAt: Date.now(), done: false } : null;
   if (job) handoutJobs.set(jobId, job);
   try {
@@ -1404,6 +1512,186 @@ app.delete('/api/library/:id', wrap(async (req, res) => {
   res.status(204).end();
 }));
 
+// ---------------------------------------------------------------- online exams
+const takeLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.TAKE_LIMIT_PER_HOUR) || 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many exam requests. Try again later.' },
+});
+
+const publicOrigin = () => (process.env.FRONTEND_URL || 'https://exams-studio.vercel.app').split(',')[0].trim();
+const takeLink = (code) => `${publicOrigin()}/take/${code}`;
+const hashIp = (ip) => crypto.createHash('sha256').update(`${process.env.EXAM_ATTEMPT_SECRET || process.env.JWT_SECRET || 'exam'}:${ip || 'unknown'}`).digest('hex');
+const takeLinkView = (pub) => ({
+  shareCode: pub.shareCode, url: takeLink(pub.shareCode), title: pub.title, instructions: pub.instructions,
+  durationMinutes: pub.durationMinutes, active: pub.active, opensAt: pub.opensAt, closesAt: pub.closesAt,
+  maxAttempts: pub.maxAttempts, requireName: pub.requireName, showResultsMode: pub.showResultsMode,
+  shuffleQuestions: pub.shuffleQuestions, shuffleOptions: pub.shuffleOptions, maxAttemptsPerDay: pub.maxAttemptsPerDay,
+});
+
+async function ownedExam(id, userId) {
+  const item = await getItem(id, userId);
+  if (!item || item.kind !== 'exam') throw httpError(404, 'That exam was not found.');
+  return item;
+}
+
+app.post('/api/exams/:id/publish', wrap(async (req, res) => {
+  const item = await ownedExam(req.params.id, req.user.id);
+  const body = req.body || {};
+  const existing = await ExamPublication.findOne({ examId: item.id, ownerId: req.user.id });
+  const data = {
+    examId: item.id, ownerId: req.user.id,
+    shareCode: existing?.shareCode || crypto.randomBytes(9).toString('base64url'),
+    title: s(body.title, 160) || s(item.title, 160) || 'Online exam',
+    instructions: s(body.instructions, 2000),
+    durationMinutes: int(body.durationMinutes, Number(item.data?.duration) || 60, 1, 600),
+    opensAt: body.opensAt ? new Date(body.opensAt) : null,
+    closesAt: body.closesAt ? new Date(body.closesAt) : null,
+    maxAttempts: int(body.maxAttempts, 1, 0, 100),
+    maxAttemptsPerDay: int(body.maxAttemptsPerDay, 200, 0, 10000),
+    requireName: body.requireName !== false,
+    showResultsMode: ['immediately', 'after_close', 'never'].includes(body.showResultsMode) ? body.showResultsMode : 'immediately',
+    shuffleQuestions: Boolean(body.shuffleQuestions),
+    shuffleOptions: Boolean(body.shuffleOptions),
+    active: body.active !== false,
+  };
+  const pub = existing ? await ExamPublication.findOneAndUpdate({ _id: existing._id }, { $set: data }, { new: true }) : await ExamPublication.create(data);
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: existing ? 'exam.publish.update' : 'exam.publish', targetType: 'exam', targetId: item.id });
+  res.status(existing ? 200 : 201).json({ publication: takeLinkView(pub) });
+}));
+
+app.get('/api/exams/:id/publication', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const pub = await ExamPublication.findOne({ examId: req.params.id, ownerId: req.user.id });
+  if (!pub) throw httpError(404, 'This exam is not published.');
+  res.json({ publication: takeLinkView(pub) });
+}));
+
+app.patch('/api/exams/:id/publication', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const pub = await ExamPublication.findOne({ examId: req.params.id, ownerId: req.user.id });
+  if (!pub) throw httpError(404, 'This exam is not published.');
+  const body = req.body || {};
+  for (const key of ['title', 'instructions']) if (body[key] !== undefined) pub[key] = s(body[key], key === 'instructions' ? 2000 : 160);
+  if (body.durationMinutes !== undefined) pub.durationMinutes = int(body.durationMinutes, pub.durationMinutes, 1, 600);
+  if (body.maxAttempts !== undefined) pub.maxAttempts = int(body.maxAttempts, pub.maxAttempts, 0, 100);
+  if (body.maxAttemptsPerDay !== undefined) pub.maxAttemptsPerDay = int(body.maxAttemptsPerDay, pub.maxAttemptsPerDay, 0, 10000);
+  for (const key of ['requireName', 'shuffleQuestions', 'shuffleOptions', 'active']) if (body[key] !== undefined) pub[key] = Boolean(body[key]);
+  if (body.showResultsMode !== undefined && ['immediately', 'after_close', 'never'].includes(body.showResultsMode)) pub.showResultsMode = body.showResultsMode;
+  if (body.opensAt !== undefined) pub.opensAt = body.opensAt ? new Date(body.opensAt) : null;
+  if (body.closesAt !== undefined) pub.closesAt = body.closesAt ? new Date(body.closesAt) : null;
+  await pub.save();
+  res.json({ publication: takeLinkView(pub) });
+}));
+
+app.post('/api/exams/:id/unpublish', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  await ExamPublication.updateOne({ examId: req.params.id, ownerId: req.user.id }, { $set: { active: false } });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/exams/:id/publication', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  await ExamPublication.deleteOne({ examId: req.params.id, ownerId: req.user.id });
+  res.json({ ok: true });
+}));
+
+app.get('/api/take/:shareCode', takeLimit, wrap(async (req, res) => {
+  const pub = await ExamPublication.findOne({ shareCode: req.params.shareCode, active: true });
+  if (!pub) throw httpError(404, 'This exam link is not active.');
+  const item = await getItem(pub.examId, pub.ownerId);
+  if (!item) throw httpError(404, 'This exam is not available.');
+  res.json({ exam: { title: pub.title, instructions: pub.instructions, durationMinutes: pub.durationMinutes, maxAttempts: pub.maxAttempts, requireName: pub.requireName, showResultsMode: pub.showResultsMode, opensAt: pub.opensAt, closesAt: pub.closesAt }, questionCount: questionList(item.data).length, totalMarks: examTotalMarks(item.data) });
+}));
+
+app.post('/api/take/:shareCode/start', takeLimit, wrap(async (req, res) => {
+  const pub = await ExamPublication.findOne({ shareCode: req.params.shareCode, active: true });
+  if (!pub) throw httpError(404, 'This exam link is not active.');
+  const now = new Date();
+  if (pub.opensAt && now < pub.opensAt) throw httpError(403, 'This exam has not opened yet.');
+  if (pub.closesAt && now > pub.closesAt) throw httpError(403, 'This exam has closed.');
+  const item = await getItem(pub.examId, pub.ownerId);
+  if (!item) throw httpError(404, 'This exam is not available.');
+  const ipHash = hashIp(req.ip || req.socket?.remoteAddress);
+  const name = s(req.body?.participantName, 120);
+  if (pub.requireName && !name) throw httpError(400, 'Enter your name before starting.');
+  const attempts = await ExamAttempt.countDocuments({ publicationId: pub._id, ipHash, ...(name ? { participantName: name } : {}) });
+  if (pub.maxAttempts > 0 && attempts >= pub.maxAttempts) throw httpError(429, 'You have used all attempts for this exam.');
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const daily = await ExamAttempt.countDocuments({ publicationId: pub._id, createdAt: { $gte: dayAgo } });
+  if (pub.maxAttemptsPerDay > 0 && daily >= pub.maxAttemptsPerDay) throw httpError(429, 'This exam has reached its daily attempt limit.');
+  const startedAt = new Date();
+  const deadlineAt = new Date(startedAt.getTime() + pub.durationMinutes * 60 * 1000);
+  const attempt = await ExamAttempt.create({ publicationId: pub._id, examId: pub.examId, ownerId: pub.ownerId, participantName: name, ipHash, seed: crypto.randomBytes(6).toString('hex'), startedAt, deadlineAt });
+  const token = signAttemptToken({ attemptId: String(attempt._id), publicationId: String(pub._id) });
+  const questions = questionList(item.data).map((q) => studentExam(q));
+  res.status(201).json({ attemptId: String(attempt._id), attemptToken: token, deadlineAt, startedAt, exam: { title: pub.title, instructions: pub.instructions, durationMinutes: pub.durationMinutes, showResultsMode: pub.showResultsMode }, questions });
+}));
+
+app.put('/api/take/attempts/:id/answers', takeLimit, wrap(async (req, res) => {
+  const data = verifyAttemptToken(req.body?.attemptToken);
+  if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
+  const attempt = await ExamAttempt.findById(req.params.id);
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  if (attempt.status !== 'in_progress') throw httpError(409, 'This attempt is already submitted.');
+  if (Date.now() > attempt.deadlineAt.getTime() + 10_000) throw httpError(410, 'The deadline has passed.');
+  const answers = req.body?.answers;
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw httpError(400, 'Answers must be an object.');
+  const merged = { ...(attempt.answers || {}) };
+  for (const [key, value] of Object.entries(answers)) {
+    if (String(value).length > 20_000) throw httpError(413, 'One of your answers is too long.');
+    merged[key] = value;
+  }
+  attempt.answers = merged;
+  attempt.autosavedAt = new Date();
+  await attempt.save();
+  res.json({ ok: true, autosavedAt: attempt.autosavedAt, deadlineAt: attempt.deadlineAt });
+}));
+
+app.post('/api/take/attempts/:id/submit', takeLimit, wrap(async (req, res) => {
+  const data = verifyAttemptToken(req.body?.attemptToken);
+  if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
+  const attempt = await ExamAttempt.findById(req.params.id);
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  if (attempt.status !== 'in_progress') return res.json({ ok: true, status: attempt.status });
+  const item = await getItem(attempt.examId, attempt.ownerId);
+  const questions = item ? questionList(item.data) : [];
+  const score = markObjective(questions, attempt.answers || {});
+  attempt.status = 'submitted';
+  attempt.submittedAt = new Date();
+  attempt.score = score;
+  attempt.feedback = score.perQuestion.filter((p) => p.needsReview).map((p) => ({ questionId: p.questionId, needsReview: true }));
+  await attempt.save();
+  res.json({ ok: true, status: attempt.status, score });
+}));
+
+app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
+  const data = verifyAttemptToken(req.query?.attemptToken || req.headers['x-attempt-token']);
+  if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
+  const attempt = await ExamAttempt.findById(req.params.id).lean();
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  const pub = await ExamPublication.findById(attempt.publicationId).lean();
+  const visible = pub?.showResultsMode === 'immediately' || (pub?.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
+  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: visible ? attempt.score : null, feedback: visible ? attempt.feedback : [], resultsVisible: visible });
+}));
+
+app.get('/api/exams/:id/attempts', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const attempts = await ExamAttempt.find({ examId: req.params.id, ownerId: req.user.id }).sort({ createdAt: -1 }).select('participantName startedAt submittedAt status score createdAt').lean();
+  res.json({ attempts });
+}));
+
+app.get('/api/exams/:id/attempts.csv', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const attempts = await ExamAttempt.find({ examId: req.params.id, ownerId: req.user.id }).sort({ createdAt: 1 }).lean();
+  const rows = [['name', 'startedAt', 'submittedAt', 'status', 'score', 'max']];
+  for (const a of attempts) rows.push([a.participantName, a.startedAt, a.submittedAt || '', a.status, a.score?.total ?? '', a.score?.max ?? '']);
+  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="attempts.csv"' }).send(csv);
+}));
+
 // ---------------------------------------------------------------- AI settings
 // "Test connection" and "List models" each make a real call to the provider on the user's
 // account, so they get their own limit.
@@ -1417,8 +1705,69 @@ const providerLimit = rateLimit({
 
 app.get('/api/settings', wrap(async (req, res) => res.json(settingsPayload(req))));
 
+// Per-user "bring your own provider" settings. The key is encrypted at rest and never returned.
+const userPresets = () => Object.entries(PROVIDERS)
+  .filter(([id, p]) => id !== 'nvidia' && p.protocol !== 'cli')
+  .map(([id, p]) => ({ id, label: p.label, protocol: p.protocol, needsKey: p.needsKey, baseURL: p.baseURL || '', model: p.model || '', help: p.help }));
+
+function cleanUserAI(body = {}) {
+  const provider = s(body.provider, 40) || 'custom';
+  if (!PROVIDERS[provider] || provider === 'nvidia') throw httpError(400, 'Choose your own provider from the list.');
+  if (PROVIDERS[provider].protocol === 'cli') throw httpError(400, 'Terminal providers cannot be used from the hosted app.');
+  const out = { provider };
+  if (body.model !== undefined) out.model = s(body.model, 160);
+  if (body.baseURL !== undefined) out.baseURL = s(body.baseURL, 300);
+  if (body.apiKey !== undefined) out.apiKey = s(body.apiKey, 500);
+  if (body.maxOutput !== undefined) out.maxOutput = numberOrBlank(body.maxOutput, 256, 200_000, 'Max output');
+  if (body.chunkChars !== undefined) out.chunkChars = numberOrBlank(body.chunkChars, 1500, 200_000, 'Notes per request');
+  if (body.timeoutMs !== undefined) out.timeoutMs = int(body.timeoutMs, 60000, 1000, 300000);
+  return out;
+}
+
+function userError(res, error) {
+  const code = error?.code || 'unreachable';
+  const status = code === 'invalid_key' ? 401 : code === 'provider_rate_limited' ? 429 : code === 'timeout' ? 504 : 400;
+  return res.status(status).json({ error: code, message: error.message || 'The provider could not be reached.' });
+}
+
+app.get('/api/settings/user', wrap(async (req, res) => {
+  res.json({ settings: await getPublicUserAISettings(req.user.id), presets: userPresets() });
+}));
+
+app.put('/api/settings/user', wrap(async (req, res) => {
+  const patch = cleanUserAI(req.body || {});
+  if (patch.baseURL) await assertSafeBaseURL(patch.baseURL).catch((e) => { throw httpError(400, e.message); });
+  const saved = await saveUserAISettings(req.user.id, patch);
+  res.json({ settings: saved });
+}));
+
+app.delete('/api/settings/user', wrap(async (req, res) => {
+  await deleteUserAISettings(req.user.id);
+  res.json({ ok: true });
+}));
+
+app.post('/api/settings/user/test', providerLimit, wrap(async (req, res) => {
+  const saved = await getUserAISettings(req.user.id) || {};
+  const patch = cleanUserAI({ ...saved, ...req.body, apiKey: req.body?.apiKey || saved.apiKey || '' });
+  const candidate = { ...saved, ...patch };
+  try {
+    const result = await runWithUserAI(candidate, async () => testProviderConnection(resolveProvider(candidate.provider)));
+    res.json({ ok: true, ...result });
+  } catch (error) { return userError(res, error); }
+}));
+
+app.get('/api/settings/user/models', providerLimit, wrap(async (req, res) => {
+  const saved = await getUserAISettings(req.user.id) || {};
+  const patch = cleanUserAI({ ...saved, ...req.query, apiKey: req.query?.apiKey || saved.apiKey || '' });
+  const candidate = { ...saved, ...patch };
+  try {
+    const models = await runWithUserAI(candidate, async () => listProviderModelIds(resolveProvider(candidate.provider)));
+    res.json({ models });
+  } catch (error) { return userError(res, error); }
+}));
+
 app.put('/api/settings', wrap(async (req, res) => {
-  if (!canConfigure(req)) throw httpError(403, 'AI settings can only be changed on the computer running the server.');
+  if (!canConfigure(req)) throw httpError(403, 'Only an administrator can change the server default AI settings.');
 
   const provider = s(req.body?.provider, 40);
   if (provider && !PROVIDERS[provider]) throw httpError(400, 'That AI provider is not known.');
@@ -1817,7 +2166,7 @@ app.use((err, _req, res, _next) => {
 
   const status = err.status || 500;
   if (status >= 500) console.error(err);
-  res.status(status).type('application/json; charset=utf-8').json({ error: status >= 500 && !err.status ? 'Something went wrong on the server.' : err.message });
+  res.status(status).type('application/json; charset=utf-8').json(err.details && typeof err.details === 'object' ? err.details : { error: status >= 500 && !err.status ? 'Something went wrong on the server.' : err.message });
 });
 
 export { app };

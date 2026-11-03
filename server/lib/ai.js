@@ -641,9 +641,9 @@ export async function generateSectionsExam({ text, title, level, totalMarksTarge
       };
     }
   };
-  // A few independent sections at a time keeps each provider call short while finishing the
-  // paper well before proxy and browser timeouts. Array indices preserve paper order.
-  await Promise.all(Array.from({ length: Math.min(3, plan.length) }, work));
+  // Two independent sections at a time keeps memory and provider burst pressure below the
+  // service limits while finishing the paper well before proxy and browser timeouts.
+  await Promise.all(Array.from({ length: Math.min(2, plan.length) }, work));
 
   const exam = {
     title: title || `${moduleCode || 'Module'} end of module examination`,

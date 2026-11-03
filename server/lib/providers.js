@@ -1,9 +1,21 @@
 // Every AI service the app can talk to. "anthropic" protocol = Anthropic Messages API (also served by DeepSeek).
 // "openai" protocol = the OpenAI-style /chat/completions API that NVIDIA, Ollama, OpenRouter, LM Studio, vLLM,
 // Groq, Together and most others offer.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { getSettings } from './settings.js';
 import { cliInstalled } from './cli.js';
 import * as admin from './adminStore.js';
+
+// Per-request AI settings for a signed-in user who brought their own provider.
+const aiContext = new AsyncLocalStorage();
+
+export function runWithUserAI(settings, fn) {
+  return aiContext.run(settings ? { userAI: settings } : {}, fn);
+}
+
+export function currentUserAI() {
+  return aiContext.getStore()?.userAI || null;
+}
 
 export const PROVIDERS = {
   anthropic: {
@@ -12,9 +24,19 @@ export const PROVIDERS = {
     help: 'Paid API from console.anthropic.com. Separate from a Claude.ai subscription.',
   },
   deepseek: {
-    label: 'DeepSeek', protocol: 'anthropic', keyEnv: 'DEEPSEEK_API_KEY', needsKey: true,
-    model: 'deepseek-flash', baseURL: 'https://api.deepseek.com/anthropic', maxOut: 32000, chunk: 10000,
-    help: 'API key from platform.deepseek.com. Needs a topped-up balance.',
+    label: 'DeepSeek', protocol: 'openai', keyEnv: 'DEEPSEEK_API_KEY', needsKey: true,
+    model: '', baseURL: 'https://api.deepseek.com', maxOut: 32000, chunk: 10000,
+    help: 'API key from platform.deepseek.com. Use List models to pick a real model id.',
+  },
+  openai: {
+    label: 'OpenAI', protocol: 'openai', keyEnv: 'OPENAI_API_KEY', needsKey: true,
+    model: '', baseURL: 'https://api.openai.com/v1', maxOut: 16000, chunk: 10000,
+    help: 'API key from platform.openai.com. Use List models to pick a model id.',
+  },
+  openrouter: {
+    label: 'OpenRouter', protocol: 'openai', keyEnv: 'OPENROUTER_API_KEY', needsKey: true,
+    model: '', baseURL: 'https://openrouter.ai/api/v1', maxOut: 16000, chunk: 10000,
+    help: 'API key from openrouter.ai. One key reaches many models.',
   },
   nvidia: {
     label: 'Exam Studio AI', protocol: 'openai', keyEnv: 'NVIDIA_API_KEY', needsKey: true,
@@ -60,6 +82,8 @@ export const PROVIDERS = {
 };
 
 export function activeProviderId() {
+  const mine = currentUserAI();
+  if (mine?.provider && mine.provider in PROVIDERS) return mine.provider;
   const env = process.env;
   const saved = getSettings().provider;
   if (saved in PROVIDERS) return saved;
@@ -75,8 +99,11 @@ export function activeProviderId() {
 
 // The full, resolved configuration for one provider (the active one by default).
 export function resolve(id = activeProviderId()) {
+  const mine = currentUserAI();
   // An unknown id (for example one left in settings.json by an older version) must not crash.
-  const chosen = PROVIDERS[id] ? id : activeProviderId();
+  const chosen = mine?.provider && mine.provider in PROVIDERS
+    ? mine.provider
+    : PROVIDERS[id] ? id : activeProviderId();
   const base = PROVIDERS[chosen];
   const prof = getSettings().profiles?.[chosen] || {};
   const active = chosen === activeProviderId();
@@ -84,6 +111,7 @@ export function resolve(id = activeProviderId()) {
   // Admin-configured default AI (Exam Studio AI) overrides env/settings when present.
   const adminCfg = chosen === 'nvidia' ? admin.getCachedAIConfig() : null;
   const adminKey = chosen === 'nvidia' ? admin.getCachedAIKey() : null;
+  const own = mine?.provider === chosen ? mine : null;
   return {
     id: chosen,
     label: base.label,
@@ -92,26 +120,27 @@ export function resolve(id = activeProviderId()) {
     needsKey: base.needsKey,
     keyEnv: base.keyEnv,
       // The raw API key is never sent to the browser; only whether one is set.
-      keySource: adminCfg?.hasKey ? 'admin' : (prof.apiKey ? 'settings' : base.keyEnv && env[base.keyEnv] ? 'env' : ''),
-    model: (adminCfg?.model) || prof.model || (active && env.AI_MODEL) || (chosen === 'anthropic' && env.CLAUDE_MODEL) || base.model,
-    baseURL: (adminCfg?.baseUrl) || prof.baseURL || (active && env.AI_BASE_URL) || base.baseURL,
-    maxOut: Number(adminCfg?.maxTokens?.notes || adminCfg?.maxTokens?.default) || Number(prof.maxOutput) || (active && Number(env.AI_MAX_OUTPUT)) || base.maxOut,
-    chunk: Number(prof.chunkChars) || (active && Number(env.AI_CHUNK_CHARS)) || base.chunk,
-    apiKey: adminKey || prof.apiKey || (base.keyEnv && env[base.keyEnv]) || '',
+      keySource: own?.apiKey ? 'user' : adminCfg?.hasKey ? 'admin' : (prof.apiKey ? 'settings' : base.keyEnv && env[base.keyEnv] ? 'env' : ''),
+    model: own?.model || (adminCfg?.model) || prof.model || (active && env.AI_MODEL) || (chosen === 'anthropic' && env.CLAUDE_MODEL) || base.model,
+    baseURL: own?.baseURL || (adminCfg?.baseUrl) || prof.baseURL || (active && env.AI_BASE_URL) || base.baseURL,
+    maxOut: own?.maxOutput || Number(adminCfg?.maxTokens?.notes || adminCfg?.maxTokens?.default) || Number(prof.maxOutput) || (active && Number(env.AI_MAX_OUTPUT)) || base.maxOut,
+    chunk: own?.chunkChars || Number(prof.chunkChars) || (active && Number(env.AI_CHUNK_CHARS)) || base.chunk,
+    timeoutMs: own?.timeoutMs || 0,
+    apiKey: own?.apiKey || adminKey || prof.apiKey || (base.keyEnv && env[base.keyEnv]) || '',
   };
 }
 
 // Everything the Settings screen needs to draw itself. Pass whether the caller is on the
 // machine running the server: terminal tools can only be used from that machine.
-export function providerCatalog({ requestIsLocal = false } = {}) {
-  const isAdmin = Boolean(requestIsLocal);
+export function providerCatalog({ requestIsLocal = false, isAdmin = false } = {}) {
+  const adminView = Boolean(isAdmin);
   const entries = Object.entries(PROVIDERS).map(([id, base]) => {
     const resolved = resolve(id);
     const isCli = base.protocol === 'cli';
     const isDefaultAI = id === 'nvidia';
     const displayLabel = isDefaultAI ? 'Exam Studio AI' : base.label;
     // Normal users never see the real provider, endpoint or model for the default AI.
-    const hideDetails = isDefaultAI && !isAdmin;
+    const hideDetails = isDefaultAI && !adminView;
     return {
       id,
       label: displayLabel,

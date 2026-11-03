@@ -24,7 +24,7 @@ function masterKey() {
   // Derive a 32-byte key.
   return crypto.createHash('sha256').update(raw).digest();
 }
-function encryptSecret(plain) {
+export function encryptSecret(plain) {
   const key = masterKey();
   if (!key) return plain ? `plain:${plain}` : null; // dev fallback, not secure
   const iv = crypto.randomBytes(12);

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { get, post, put } from './api.js';
+import { get, post, put, del } from './api.js';
 
 const blank = { model: '', baseURL: '', apiKey: '', maxOutput: '', chunkChars: '' };
 const fromProvider = (p) => ({ model: p.model || '', baseURL: p.baseURL || '', apiKey: '', maxOutput: String(p.maxOutput || ''), chunkChars: String(p.chunkChars || '') });
@@ -98,9 +98,12 @@ export default function Settings({ onClose, onChanged, update, onUpdate }) {
           <button className="link" onClick={onClose} aria-label="Close settings">Close</button>
         </div>
         {!data && !result && <p className="hint">Loading…</p>}
-        {locked && <div className="banner">Settings can only be changed on the computer running the server, or when an access code is set.</div>}
-        {prov && (
+        {data && !data.signedIn && <div className="banner">Sign in to use your own provider.</div>}
+        {data?.signedIn && <OwnProvider onChanged={onChanged} />}
+        {(data?.isAdmin || data?.canChange) && prov && (
           <>
+            <h3>Server default</h3>
+            <p className="hint">This provider is used by everyone without their own settings. Only administrators can change it.</p>
             <label className="field">
               <span>Provider</span>
               <select ref={first} value={sel} onChange={(e) => choose(e.target.value)} disabled={!!busy}>
@@ -119,8 +122,8 @@ export default function Settings({ onClose, onChanged, update, onUpdate }) {
 
             {!isCli && (
               <label className="field">
-                <span>Address (base URL){prov.id === 'custom' ? '' : ' · change only if you know you need to'}</span>
-                <input value={form.baseURL} onChange={set('baseURL')} placeholder={prov.defaults.baseURL || 'https://…/v1'} disabled={locked} />
+                <span>Address (base URL){prov.id === 'custom' ? '' : ' Â· change only if you know you need to'}</span>
+                <input value={form.baseURL} onChange={set('baseURL')} placeholder={prov.defaults.baseURL || 'https://â€¦/v1'} disabled={locked} />
               </label>
             )}
 
@@ -145,9 +148,9 @@ export default function Settings({ onClose, onChanged, update, onUpdate }) {
             </details>
 
             <div className="bar wrap">
-              <button className="primary" onClick={onSave} disabled={!!busy || locked}>{busy === 'save' ? 'Saving…' : 'Save and use'}</button>
-              <button onClick={onTest} disabled={!!busy || locked}>{busy === 'test' ? 'Testing…' : 'Test connection'}</button>
-              {!isCli && <button onClick={onModels} disabled={!!busy || locked}>{busy === 'models' ? 'Loading…' : 'List models'}</button>}
+              <button className="primary" onClick={onSave} disabled={!!busy || locked}>{busy === 'save' ? 'Savingâ€¦' : 'Save and use'}</button>
+              <button onClick={onTest} disabled={!!busy || locked}>{busy === 'test' ? 'Testingâ€¦' : 'Test connection'}</button>
+              {!isCli && <button onClick={onModels} disabled={!!busy || locked}>{busy === 'models' ? 'Loadingâ€¦' : 'List models'}</button>}
             </div>
           </>
         )}
@@ -171,7 +174,7 @@ export default function Settings({ onClose, onChanged, update, onUpdate }) {
                 placeholder="your-name/exam-studio" disabled={locked} spellCheck={false} />
             </label>
             <label className="field">
-              <span>…or a feed address</span>
+              <span>â€¦or a feed address</span>
               <input value={updateForm.feedUrl} onChange={(e) => setUpdateForm({ ...updateForm, feedUrl: e.target.value })}
                 placeholder="https://example.com/version.json" disabled={locked} spellCheck={false} />
             </label>
@@ -183,12 +186,107 @@ export default function Settings({ onClose, onChanged, update, onUpdate }) {
           </p>
 
           <div className="bar wrap">
-            <button onClick={onSaveUpdate} disabled={!!busy || locked}>{busy === 'update-source' ? 'Saving…' : 'Save update settings'}</button>
-            <button onClick={onCheckUpdate} disabled={!!busy}>{busy === 'update' ? 'Checking…' : 'Check for updates now'}</button>
+            <button onClick={onSaveUpdate} disabled={!!busy || locked}>{busy === 'update-source' ? 'Savingâ€¦' : 'Save update settings'}</button>
+            <button onClick={onCheckUpdate} disabled={!!busy}>{busy === 'update' ? 'Checkingâ€¦' : 'Check for updates now'}</button>
           </div>
         </div>
         <p className="hint">Your key is stored only on this computer and is never shown again. Your notes are sent to the provider you choose{prov?.id === 'ollama' ? ', except with Ollama on this computer, where nothing leaves it' : ''}{isCli ? ' (here: to whatever AI that terminal tool is signed in to)' : ''}.</p>
       </div>
+    </div>
+  );
+}
+
+function OwnProvider({ onChanged }) {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({ provider: 'deepseek', model: '', baseURL: '', apiKey: '', maxOutput: '', chunkChars: '', timeoutMs: '' });
+  const [models, setModels] = useState([]);
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    get('/settings/user').then((d) => {
+      setData(d);
+      const s = d.settings || {};
+      const preset = (d.presets || []).find((p) => p.id === (s.provider || 'deepseek')) || d.presets?.[0];
+      setForm({ provider: s.provider || preset?.id || 'deepseek', model: s.model || '', baseURL: s.baseURL || '', apiKey: '', maxOutput: s.maxOutput ? String(s.maxOutput) : '', chunkChars: s.chunkChars ? String(s.chunkChars) : '', timeoutMs: s.timeoutMs ? String(s.timeoutMs) : '' });
+    }).catch((e) => setMsg({ ok: false, text: e.message }));
+  }, []);
+
+  const presets = data?.presets || [];
+  const preset = presets.find((p) => p.id === form.provider);
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+  const choose = (id) => {
+    const p = presets.find((x) => x.id === id);
+    setForm({ ...form, provider: id, baseURL: '', model: '', apiKey: '', maxOutput: '', chunkChars: '' });
+    setModels([]); setMsg(null);
+    if (p) setForm((f) => ({ ...f, provider: id }));
+  };
+  const act = (name, fn) => async () => {
+    setBusy(name); setMsg(null);
+    try { await fn(); } catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(''); }
+  };
+  const save = act('save', async () => {
+    const body = { provider: form.provider, model: form.model, baseURL: form.baseURL, maxOutput: form.maxOutput, chunkChars: form.chunkChars, timeoutMs: form.timeoutMs };
+    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim();
+    const d = await put('/settings/user', body);
+    setData((old) => ({ ...old, settings: d.settings }));
+    setForm((f) => ({ ...f, apiKey: '' }));
+    onChanged?.(await get('/health'));
+    setMsg({ ok: true, text: 'Your provider settings were saved. Your own key usage does not count against the free daily limit.' });
+  });
+  const test = act('test', async () => {
+    const body = { provider: form.provider, model: form.model, baseURL: form.baseURL, timeoutMs: form.timeoutMs };
+    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim();
+    const r = await post('/settings/user/test', body);
+    setMsg({ ok: true, text: `Connected in ${(r.ms / 1000).toFixed(1)} s. Reply: ${r.sample}` });
+  });
+  const listModels = act('models', async () => {
+    const body = { provider: form.provider, model: form.model, baseURL: form.baseURL };
+    await put('/settings/user', body);
+    const r = await get('/settings/user/models');
+    setModels(r.models || []);
+    setMsg({ ok: true, text: r.models?.length ? `${r.models.length} real model ids found. Pick one below.` : 'This provider does not list models. Type the model id.' });
+  });
+  const remove = act('remove', async () => {
+    await del('/settings/user');
+    setData((old) => ({ ...old, settings: null }));
+    setMsg({ ok: true, text: 'Your saved provider key was removed. The server default is used again.' });
+  });
+
+  return (
+    <div className="own-provider">
+      <h3>Your own provider</h3>
+      <p className="hint">Use your own DeepSeek, OpenAI, Anthropic, OpenRouter or compatible API key. It is stored encrypted and never returned to the browser. Own-key usage is not counted against the free daily limit.</p>
+      {data?.settings?.hasKey && (
+        <p className="hint">Saved key ending in <strong>…{data.settings.keyLast4}</strong>. Leave the key box empty to keep it.</p>
+      )}
+      <label className="field">
+        <span>Provider</span>
+        <select value={form.provider} onChange={(e) => choose(e.target.value)} disabled={!!busy}>
+          {presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </label>
+      {preset && <p className="hint">{preset.help}</p>}
+      <label className="field">
+        <span>Base URL {preset?.baseURL ? `(default ${preset.baseURL})` : ''}</span>
+        <input value={form.baseURL} onChange={set('baseURL')} placeholder={preset?.baseURL || 'https://…/v1'} disabled={!!busy} />
+      </label>
+      <label className="field">
+        <span>Model {preset?.model ? `(default ${preset.model})` : '(use List models)'}</span>
+        <input list="own-model-list" value={form.model} onChange={set('model')} placeholder={preset?.model || 'model id'} disabled={!!busy} />
+        <datalist id="own-model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
+      </label>
+      <label className="field">
+        <span>API key {data?.settings?.hasKey ? '(leave empty to keep the saved key)' : '(write-only)'}</span>
+        <input type="password" autoComplete="off" spellCheck={false} value={form.apiKey} onChange={set('apiKey')} placeholder={data?.settings?.hasKey ? 'Saved key' : 'Paste your key'} disabled={!!busy} />
+      </label>
+      <div className="bar wrap">
+        <button className="primary" onClick={save} disabled={!!busy}>{busy === 'save' ? 'Saving…' : 'Save my provider'}</button>
+        <button onClick={test} disabled={!!busy}>{busy === 'test' ? 'Testing…' : 'Test connection'}</button>
+        <button onClick={listModels} disabled={!!busy}>{busy === 'models' ? 'Loading…' : 'List models'}</button>
+        {data?.settings && <button className="link danger" onClick={remove} disabled={!!busy}>Remove my key</button>}
+      </div>
+      {msg && <div className={`banner ${msg.ok ? '' : 'error'}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</div>}
     </div>
   );
 }

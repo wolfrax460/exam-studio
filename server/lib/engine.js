@@ -300,11 +300,11 @@ const openaiHeaders = (cfg) => ({
 
 const baseUrl = (cfg) => String(cfg.baseURL || '').replace(/\/+$/, '');
 
-async function openaiRequest(cfg, path, { method = 'GET', body, timeoutMs = 120_000 } = {}) {
+async function openaiRequest(cfg, path, { method = 'GET', body, timeoutMs = Number(process.env.AI_TIMEOUT_MS) || 180_000 } = {}) {
   if (!baseUrl(cfg)) throw httpError(500, 'This provider needs an address (base URL). Set it in Settings.');
   const url = `${baseUrl(cfg)}${path}`;
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     let response;
     try {
       response = await fetch(url, {
@@ -333,9 +333,12 @@ async function openaiRequest(cfg, path, { method = 'GET', body, timeoutMs = 120_
     error.status = response.status;
     error.headers = response.headers;
     lastError = error;
-    if (attempt === 0 && RETRIABLE_STATUSES.has(response.status)) {
+    if (attempt < 3 && RETRIABLE_STATUSES.has(response.status)) {
       const retryAfter = response.headers.get('retry-after');
-      const backoffMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 10000) : 2000;
+      const retrySeconds = retryAfter ? Number.parseInt(retryAfter, 10) : 0;
+      const backoffMs = retrySeconds > 0
+        ? Math.min(retrySeconds * 1000, 30_000)
+        : Math.min(30_000, 750 * 2 ** attempt) + Math.floor(Math.random() * 500);
       await sleepMs(backoffMs);
       continue;
     }
