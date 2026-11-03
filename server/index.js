@@ -40,7 +40,7 @@ import { launchInfo, snippets } from './lib/agents.js';
 import { createMcpServer, PUBLIC_INPUT_MAX_CHARS } from './lib/mcpServer.js';
 import ExamPublication from './lib/models/ExamPublication.js';
 import ExamAttempt from './lib/models/ExamAttempt.js';
-import { studentExam, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective } from './lib/examTake.js';
+import { studentExam, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective, aiMarkAnswer } from './lib/examTake.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
@@ -1512,6 +1512,76 @@ app.delete('/api/library/:id', wrap(async (req, res) => {
   res.status(204).end();
 }));
 
+async function markAttemptAI(attemptId) {
+  const attempt = await ExamAttempt.findById(attemptId);
+  if (!attempt || attempt.status !== 'submitted') return;
+  const item = await getItem(attempt.examId, attempt.ownerId);
+  if (!item) { attempt.status = 'marking_failed'; await attempt.save(); return; }
+  const questions = questionList(item.data);
+  const needs = (attempt.score?.perQuestion || []).filter((p) => p.needsReview);
+  if (!needs.length) { attempt.status = 'marked'; await attempt.save(); return; }
+  try {
+    await admin.enforceLimits(attempt.ownerId, 'exam', '');
+  } catch {
+    attempt.status = 'marking_failed';
+    attempt.feedback = [...(attempt.feedback || []), { needsReview: true, message: 'AI marking limit reached. Objective questions are marked; the owner can review and mark written answers.' }];
+    await attempt.save();
+    return;
+  }
+  const answers = attempt.answers || {};
+  const byId = new Map(questions.map((q) => [String(q.id), q]));
+  const results = new Map(attempt.score.perQuestion.map((p) => [String(p.questionId), p]));
+  let next = 0;
+  const work = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= needs.length) return;
+      const entry = needs[index];
+      const q = byId.get(String(entry.questionId));
+      if (!q) continue;
+      try {
+        const marked = await aiMarkAnswer(q, answers[entry.questionId]);
+        const current = results.get(String(entry.questionId));
+        results.set(String(entry.questionId), { ...current, ...marked, needsReview: false });
+        attempt.feedback = [...(attempt.feedback || []).filter((f) => f.questionId !== entry.questionId), { questionId: entry.questionId, ...marked }];
+        attempt.score = { ...attempt.score, perQuestion: [...results.values()], total: [...results.values()].reduce((s, p) => s + p.awarded, 0) };
+        attempt.markingProgress = { done: Array.from(results.values()).filter((p) => !p.needsReview).length, total: attempt.score.perQuestion.length };
+        await attempt.save();
+      } catch {
+        attempt.feedback = [...(attempt.feedback || []), { questionId: entry.questionId, needsReview: true, message: 'This answer needs the owner to review and mark it.' }];
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, needs.length) }, work));
+  attempt.score = { ...attempt.score, perQuestion: [...results.values()], total: [...results.values()].reduce((s, p) => s + p.awarded, 0) };
+  const still = attempt.score.perQuestion.some((p) => p.needsReview);
+  attempt.status = still ? 'marking_failed' : 'marked';
+  await attempt.save();
+  try { await admin.recordUsage({ userId: attempt.ownerId, taskType: 'exam', estimatedTokens: 200, success: true }); } catch {}
+}
+
+async function finalizeAttempt(attempt) {
+  if (!attempt || attempt.status !== 'in_progress') return attempt;
+  const item = await getItem(attempt.examId, attempt.ownerId);
+  const questions = item ? questionList(item.data) : [];
+  const score = markObjective(questions, attempt.answers || {});
+  attempt.status = 'submitted';
+  attempt.submittedAt = new Date();
+  attempt.score = score;
+  attempt.feedback = score.perQuestion.filter((p) => p.needsReview).map((p) => ({ questionId: p.questionId, needsReview: true }));
+  attempt.markingProgress = { done: score.perQuestion.filter((p) => !p.needsReview).length, total: score.perQuestion.length };
+  await attempt.save();
+  setImmediate(() => markAttemptAI(attempt._id).catch(() => {}));
+  return attempt;
+}
+
+// Deadline auto-submit: a closed tab must not leave an exam open forever.
+setInterval(async () => {
+  try {
+    const due = await ExamAttempt.find({ status: 'in_progress', deadlineAt: { $lt: new Date(Date.now() - 10_000) } }).limit(20);
+    for (const attempt of due) await finalizeAttempt(attempt);
+  } catch { /* a background sweep must never crash the server */ }
+}, 60_000).unref();
 // ---------------------------------------------------------------- online exams
 const takeLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -1655,16 +1725,8 @@ app.post('/api/take/attempts/:id/submit', takeLimit, wrap(async (req, res) => {
   if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
   const attempt = await ExamAttempt.findById(req.params.id);
   if (!attempt) throw httpError(404, 'Attempt not found.');
-  if (attempt.status !== 'in_progress') return res.json({ ok: true, status: attempt.status });
-  const item = await getItem(attempt.examId, attempt.ownerId);
-  const questions = item ? questionList(item.data) : [];
-  const score = markObjective(questions, attempt.answers || {});
-  attempt.status = 'submitted';
-  attempt.submittedAt = new Date();
-  attempt.score = score;
-  attempt.feedback = score.perQuestion.filter((p) => p.needsReview).map((p) => ({ questionId: p.questionId, needsReview: true }));
-  await attempt.save();
-  res.json({ ok: true, status: attempt.status, score });
+  const finalized = await finalizeAttempt(attempt);
+  res.json({ ok: true, status: finalized.status, score: finalized.score });
 }));
 
 app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
@@ -1674,7 +1736,7 @@ app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
   if (!attempt) throw httpError(404, 'Attempt not found.');
   const pub = await ExamPublication.findById(attempt.publicationId).lean();
   const visible = pub?.showResultsMode === 'immediately' || (pub?.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
-  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: visible ? attempt.score : null, feedback: visible ? attempt.feedback : [], resultsVisible: visible });
+  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: visible ? attempt.score : null, feedback: visible ? attempt.feedback : [], markingProgress: attempt.markingProgress || null, resultsVisible: visible });
 }));
 
 app.get('/api/exams/:id/attempts', wrap(async (req, res) => {

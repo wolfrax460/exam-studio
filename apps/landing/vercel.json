@@ -5,6 +5,7 @@
     { "source": "/admin", "destination": "https://examstudio.duckdns.org/admin" },
     { "source": "/admin/:path*", "destination": "https://examstudio.duckdns.org/admin/:path*" },
     { "source": "/app", "destination": "https://examstudio.duckdns.org/app" },
+    { "source": "/take/:path*", "destination": "https://examstudio.duckdns.org/take/:path*" },
     { "source": "/app/:path*", "destination": "https://examstudio.duckdns.org/app/:path*" },
     { "source": "/assets/:path*", "destination": "https://examstudio.duckdns.org/assets/:path*" },
     { "source": "/api/:path*", "destination": "https://examstudio.duckdns.org/api/:path*" },
