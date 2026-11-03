@@ -42,3 +42,12 @@
 ## How to resume
 Pull main. `npm run setup && npm test && npm run create-admin`.
 '
+
+## Update 2026-11-03: online exams and admin
+- Online exam publishing API, public take page, objective marking, AI written-answer marking and deadline auto-submit are implemented on the backend.
+- Public take page `/take/<shareCode>` is implemented in the client with timer, autosave, navigator and mobile layout.
+- Owner "Publish online" panel with link, results table, stats and mark override is implemented.
+- Attempt retention is configurable with ATTEMPT_RETENTION_DAYS (default 180).
+- MCP publish/result tools and 375/768/1280 screenshots are NOT done.
+- Admin dashboard restyle is NOT done: reference/admin-layout.png is still missing.
+- Server tests: 198 passing.

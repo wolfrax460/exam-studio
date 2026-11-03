@@ -1745,6 +1745,55 @@ app.get('/api/exams/:id/attempts', wrap(async (req, res) => {
   res.json({ attempts });
 }));
 
+app.get('/api/exams/:id/attempts/stats', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const attempts = await ExamAttempt.find({ examId: req.params.id, ownerId: req.user.id }).lean();
+  const submitted = attempts.filter((a) => a.submittedAt);
+  const scores = submitted.map((a) => Number(a.score?.total) || 0);
+  const questions = {};
+  for (const a of submitted) for (const p of a.score?.perQuestion || []) {
+    const row = questions[p.questionId] || { questionId: p.questionId, attempts: 0, awarded: 0, max: p.max || 0 };
+    row.attempts++; row.awarded += Number(p.awarded) || 0; row.max = Math.max(row.max, Number(p.max) || 0); questions[p.questionId] = row;
+  }
+  res.json({ attempts: attempts.length, submitted: submitted.length, average: scores.length ? scores.reduce((s, n) => s + n, 0) / scores.length : 0, highest: scores.length ? Math.max(...scores) : 0, lowest: scores.length ? Math.min(...scores) : 0, questions: Object.values(questions) });
+}));
+
+app.get('/api/exams/:id/attempts/:attemptId', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const attempt = await ExamAttempt.findOne({ _id: req.params.attemptId, examId: req.params.id, ownerId: req.user.id }).lean();
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  res.json({ attempt });
+}));
+
+app.patch('/api/exams/:id/attempts/:attemptId/score', wrap(async (req, res) => {
+  await ownedExam(req.params.id, req.user.id);
+  const attempt = await ExamAttempt.findOne({ _id: req.params.attemptId, examId: req.params.id, ownerId: req.user.id });
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  const item = await getItem(req.params.id, req.user.id);
+  const questions = questionList(item.data);
+  const incoming = Array.isArray(req.body?.perQuestion) ? req.body.perQuestion : [];
+  const map = new Map(incoming.map((p) => [String(p.questionId), p]));
+  attempt.score.perQuestion = (attempt.score?.perQuestion || []).map((p) => {
+    const override = map.get(String(p.questionId));
+    if (!override) return p;
+    const awarded = Math.min(Number(p.max) || 0, Math.max(0, Math.round(Number(override.awarded) * 2) / 2));
+    return { ...p, awarded, needsReview: false, overrideComment: s(override.comment, 500) || p.overrideComment || '' };
+  });
+  attempt.score.total = attempt.score.perQuestion.reduce((sum, p) => sum + (Number(p.awarded) || 0), 0);
+  attempt.score.max = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+  attempt.status = attempt.score.perQuestion.some((p) => p.needsReview) ? 'marking_failed' : 'marked';
+  attempt.markedByOwnerAt = new Date();
+  await attempt.save();
+  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'attempt.score.override', targetType: 'examAttempt', targetId: String(attempt._id) });
+  res.json({ attempt });
+}));
+
+// Retention: remove old attempts on the same background cadence as auto-submit.
+setInterval(async () => {
+  const days = Number(process.env.ATTEMPT_RETENTION_DAYS) || 180;
+  const cutoff = new Date(Date.now() - days * 86400000);
+  try { await ExamAttempt.deleteMany({ createdAt: { $lt: cutoff } }); } catch {}
+}, 24 * 60 * 60 * 1000).unref();
 app.get('/api/exams/:id/attempts.csv', wrap(async (req, res) => {
   await ownedExam(req.params.id, req.user.id);
   const attempts = await ExamAttempt.find({ examId: req.params.id, ownerId: req.user.id }).sort({ createdAt: 1 }).lean();
