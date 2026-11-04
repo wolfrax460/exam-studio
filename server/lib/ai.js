@@ -601,18 +601,178 @@ async function generateOneSection({ spec, count, itemMarks, programming, title, 
   return cleanExamSection(result, spec, { count, itemMarks });
 }
 
-/** One section, splitting it in half if the model ran out of room. */
+// ---------------------------------------------------------------- chunk selection for large sources
+// For sources over the notes-per-request limit, find relevant chunks per section using keyword matching.
+const CHUNK_SIZE = 8000;
+
+/** Split text into chunks at paragraph boundaries */
+function splitIntoChunks(text, size = CHUNK_SIZE) {
+  const paragraphs = String(text).split(/\n\s*\n/);
+  const chunks = [];
+  let current = '';
+  for (const para of paragraphs) {
+    if (para.length <= size) {
+      if (current && current.length + para.length + 2 > size) { chunks.push(current); current = ''; }
+      current += (current ? '\n\n' : '') + para;
+    } else {
+      if (current) chunks.push(current);
+      for (let i = 0; i < para.length; i += size) chunks.push(para.slice(i, i + size));
+      current = '';
+    }
+  }
+  if (current.trim()) chunks.push(current);
+  return chunks;
+}
+
+/** Extract keywords from text (significant words, topics) */
+function extractKeywords(text) {
+  const normalized = String(text).toLowerCase();
+  const stopWords = new Set(['the', 'and', 'or', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare', 'ought', 'used', 'it', 'this', 'that', 'these', 'those']);
+  const words = normalized.match(/\b[a-z]{3,}\b/g) || [];
+  const freq = new Map();
+  for (const word of words) {
+    if (stopWords.has(word)) continue;
+    freq.set(word, (freq.get(word) || 0) + 1);
+  }
+  return Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 50).map(([w]) => w);
+}
+
+/** Score how relevant a chunk is to a section spec's keywords */
+function scoreChunk(chunk, keywords) {
+  const text = String(chunk).toLowerCase();
+  let score = 0;
+  for (const kw of keywords) {
+    const regex = new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+    const matches = text.match(regex);
+    score += (matches ? matches.length : 0) * 10;
+    for (const word of kw.split(/\s+/)) {
+      if (word.length > 3) {
+        const subRegex = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+        const subMatches = text.match(subRegex);
+        score += (subMatches ? subMatches.length : 0);
+      }
+    }
+  }
+  return score;
+}
+
+/** Find the most relevant chunks for a section based on section requirements */
+function findRelevantChunks(text, spec, notesPerRequest) {
+  const keywords = extractKeywords(spec.title + ' ' + (SECTION_KINDS[spec.kind] || ''));
+  const chunks = splitIntoChunks(text, notesPerRequest);
+  if (chunks.length <= 1) return text;
+
+  // Score each chunk and pick top 20% (or at least 3 chunks)
+  const scored = chunks.map((chunk, i) => ({ chunk, score: scoreChunk(chunk, keywords), index: i }));
+  scored.sort((a, b) => b.score - a.score);
+  const keepCount = Math.max(3, Math.ceil(chunks.length * 0.2));
+  const top = scored.slice(0, keepCount).sort((a, b) => a.index - b.index).map(x => x.chunk);
+
+  return top.join('\n\n\n=== CONTEXT SECTION ===\n\n');
+}
+
+/** One section, with chunk selection for large sources, and retry logic. */
 async function generateSectionItems(options, depth = 0) {
-  const { spec, count, itemMarks } = options;
+  const { spec, count, itemMarks, notes, notesPerRequest = resolve().chunk || 8000 } = options;
+
+  // Pre-generation warning for large sources
+  const isLargeSource = notes && notes.length > notesPerRequest * 3;
+  if (isLargeSource && !options._warned && depth === 0) {
+    if (notes.length > notesPerRequest * 10) {
+      throw httpError(413, `Source is ${Math.round(notes.length / 1000)}k characters. Exam Studio will use the most relevant parts. For best results, pick one unit.`);
+    }
+  }
+
+  // Select relevant chunks for this section if source is large
+  const useChunks = notes && notes.length > notesPerRequest && !options._chunked;
+  const sectionNotes = useChunks ? findRelevantChunks(notes, spec, notesPerRequest) : notes;
+
   try {
-    return await generateOneSection(options);
+    return await generateOneSection({ ...options, notes: sectionNotes, _chunked: useChunks });
   } catch (error) {
-    if (!error.cutoff || depth >= 2 || count < 4) throw error;
+    // Improved error handling with specific messages
+    if (error.cutoff || error.output_too_large || error.invalid_json || error.truncated) {
+      const retryError = await retrySectionGeneration({ ...options, notes: sectionNotes, depth: depth + 1 });
+      if (retryError) throw retryError;
+    }
+
+    if (!error.cutoff || depth >= 2 || count < 4) {
+      // Provide specific error messages
+      if (error.message?.includes('no usable questions')) {
+        throw httpError(502, `Section ${spec.id} could not be written - retry section ${spec.id}. The AI returned no usable questions. Try again or reduce the source size.`);
+      }
+      if (error.message?.includes('cut off') || error.cutoff) {
+        throw httpError(502, `Section ${spec.id} was cut off due to length. Retry section ${spec.id}.`);
+      }
+      throw error;
+    }
+
     const half = Math.ceil(count / 2);
-    const first = await generateSectionItems({ ...options, count: half, itemMarks: itemMarks ? itemMarks.slice(0, half) : null }, depth + 1);
-    const second = await generateSectionItems({ ...options, count: count - half, itemMarks: itemMarks ? itemMarks.slice(half) : null, skip: first.length }, depth + 1);
+    const first = await generateSectionItems({ ...options, count: half, itemMarks: itemMarks ? itemMarks.slice(0, half) : null, _chunked: true }, depth + 1);
+    const second = await generateSectionItems({ ...options, count: count - half, itemMarks: itemMarks ? itemMarks.slice(half) : null, skip: first.length, _chunked: true }, depth + 1);
     return [...first, ...second];
   }
+}
+
+/** Retry section generation with fewer chunks */
+async function retrySectionGeneration(options, depth = 0) {
+  const { spec, count, itemMarks, notes, notesPerRequest = resolve().chunk || 8000 } = options;
+
+  // Try with fewer chunks
+  const smallerRequest = Math.floor(notesPerRequest * 0.7);
+  const chunks = splitIntoChunks(notes, smallerRequest);
+  if (chunks.length > 1) {
+    const keywords = extractKeywords(spec.title + ' ' + (SECTION_KINDS[spec.kind] || ''));
+    chunks.sort((a, b) => scoreChunk(b, keywords) - scoreChunk(a, keywords));
+    const condensed = chunks.slice(0, 2).join('\n\n');
+    try {
+      return await generateOneSection({ ...options, notes: condensed, _chunked: true, count: Math.min(count, 15) });
+    } catch {
+      // Fall back to default provider if configured
+      if (!options._usedDefaultProvider && process.env.DEFAULT_AI_PROVIDER) {
+        try {
+          const originalModel = resolve().model;
+          // Temporarily use default provider
+          process.env.AI_MODEL = process.env.DEFAULT_AI_PROVIDER;
+          const result = await generateOneSection({ ...options, notes: condensed, _chunked: true, _usedDefaultProvider: true });
+          process.env.AI_MODEL = originalModel;
+          return result;
+        } catch {
+          process.env.AI_MODEL = originalModel;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Repair JSON output from AI (handle trailing commas, truncated objects, code fences) */
+function repairJsonOutput(text) {
+  if (!text) return text;
+
+  // Remove code fences
+  let repaired = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+  // Try parsing first
+  try { JSON.parse(repaired); return repaired; } catch {}
+
+  // Fix trailing commas before } or ]
+  repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+
+  // Try parsing again
+  try { JSON.parse(repaired); return repaired; } catch {}
+
+  // If still invalid, try to find a valid JSON object
+  const start = repaired.indexOf('{');
+  const end = repaired.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    repaired = repaired.slice(start, end + 1);
+    repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+    try { JSON.parse(repaired); return repaired; } catch {}
+  }
+
+  // Return as-is if nothing works - let the caller handle the error
+  return text;
 }
 
 export async function generateSectionsExam({ text, title, level, totalMarksTarget, sectionPlan, moduleCode, trade, school, duration, avoid, variant }) {
