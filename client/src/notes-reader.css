@@ -1,0 +1,377 @@
+/* Reading page for Exam Studio study notes. Measures text for comfortable
+   reading (~68ch), reuses the app's theme tokens, and stays inside the viewport
+   at 375px without horizontal scrolling. */
+
+.nr-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 20px 72px;
+  color: var(--ink);
+  line-height: 1.65;
+}
+
+.nr-eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.nr-title {
+  margin: 0 0 12px;
+  font-size: clamp(1.5rem, 1.15rem + 1.6vw, 2.15rem);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.nr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.nr-chips li {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nr-summary {
+  margin: 0;
+  font-size: 1.02rem;
+  color: var(--muted);
+}
+
+.nr-h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 34px 0 12px;
+  font-size: 1.16rem;
+  line-height: 1.3;
+}
+
+.nr-section-number {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.nr-p {
+  margin: 0 0 14px;
+  max-width: 68ch;
+}
+
+.nr-list {
+  margin: 0 0 14px;
+  padding-left: 1.15rem;
+  max-width: 68ch;
+}
+
+.nr-list li {
+  margin-bottom: 6px;
+}
+
+.nr-def {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.nr-def dt {
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.nr-def dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.nr-table-wrap {
+  margin: 0 0 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.nr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.nr-table th,
+.nr-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.nr-table thead th {
+  background: var(--panel);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nr-table tbody th {
+  font-weight: 600;
+}
+
+.nr-table tr:last-child th,
+.nr-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.nr-callout {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 0 10px 10px 0;
+  background: var(--panel);
+}
+
+.nr-callout-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.nr-callout-note { border-left-color: var(--accent); }
+.nr-callout-tip { border-left-color: var(--accent); }
+.nr-callout-warning { border-left-color: var(--err-ink); }
+.nr-callout-exam { border-left-color: var(--warn-ink, #9a6a22); }
+
+.nr-example {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.nr-example-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.nr-answer {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.nr-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.nr-compare-side {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.nr-compare-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.nr-compare-side .nr-list {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.nr-check {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.nr-check summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.nr-check[open] summary {
+  margin-bottom: 8px;
+}
+
+.nr-trap {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--err-ink);
+  border-radius: 10px;
+}
+
+.nr-trap-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 0.94rem;
+}
+
+.nr-trap-row span {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nr-trap-wrong span {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+
+.nr-trap-right span {
+  background: var(--ok-bg);
+  color: var(--ink);
+}
+
+.nr-trap-why {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.nr-toc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 22px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.92rem;
+}
+
+.nr-toc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.nr-toc a:hover {
+  text-decoration: underline;
+}
+
+.nr-list li {
+  overflow-wrap: anywhere;
+}
+
+.nr-objectives,
+.nr-terms,
+.nr-exam,
+.nr-checklist,
+.nr-reading {
+  margin-top: 30px;
+}
+
+.nr-term-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.nr-term {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.nr-term-name {
+  margin: 0 0 3px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.nr-term-def {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.nr-checklist-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nr-checklist-list li {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.nr-checklist-list input {
+  margin-top: 4px;
+  accent-color: var(--accent);
+}
+
+.nr-invalid {
+  padding: 16px;
+  border: 1px solid var(--err-ink);
+  border-radius: 10px;
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+
+.nr-invalid-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.nr-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 480px) {
+  .nr-page {
+    padding: 20px 14px 56px;
+  }
+  .nr-h2 {
+    margin-top: 26px;
+    font-size: 1.06rem;
+  }
+  .nr-table {
+    font-size: 0.84rem;
+  }
+}

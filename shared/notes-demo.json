@@ -1,0 +1,148 @@
+{
+  "format": "exam-studio/study-notes",
+  "version": 1,
+  "meta": {
+    "title": "Cell membrane transport",
+    "unit": "Unit 4 — Cell membrane transport",
+    "course": "Cell Biology",
+    "level": "Undergraduate",
+    "language": "en",
+    "estimatedMinutes": 14,
+    "generatedAt": "2026-11-04T09:00:00.000Z",
+    "source": { "chars": 412, "files": 0 }
+  },
+  "summary": "The plasma membrane is a selectively permeable phospholipid bilayer. Small non-polar molecules cross it by simple diffusion, water crosses by osmosis, polar solutes cross through channels or carriers in facilitated diffusion, and active transport moves solutes against their gradient using ATP. The direction of movement in every case is set by the electrochemical gradient, not by the size of the molecule alone.",
+  "objectives": [
+    "Distinguish simple diffusion, facilitated diffusion, osmosis and active transport",
+    "Predict the direction of net movement from a concentration gradient",
+    "Explain why active transport requires ATP while facilitated diffusion does not",
+    "Describe what happens to a cell in hypertonic, hypotonic and isotonic solutions"
+  ],
+  "keyTerms": [
+    { "term": "Selective permeability", "definition": "The property of a membrane that lets some substances cross freely while restricting others." },
+    { "term": "Osmosis", "definition": "The net movement of water across a selectively permeable membrane from lower to higher solute concentration." },
+    { "term": "Facilitated diffusion", "definition": "Passive transport through a channel or carrier protein, down the concentration gradient, with no ATP used." },
+    { "term": "Active transport", "definition": "Movement of a solute against its electrochemical gradient, driven by energy from ATP hydrolysis." },
+    { "term": "Tonicity", "definition": "The ability of an external solution to cause water to enter or leave a cell." }
+  ],
+  "sections": [
+    {
+      "id": "membrane",
+      "title": "Why the membrane is selective",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The bilayer has a hydrophobic core, so the rule that predicts most movement is polarity plus size. Oxygen, carbon dioxide and steroid hormones dissolve in the core and cross directly. Ions, glucose and amino acids cannot, however small they are, because their charge or their hydration shell keeps them out of the lipid."
+        },
+        {
+          "type": "table",
+          "columns": ["Substance", "Crosses the bilayer directly?", "Route it actually uses"],
+          "rows": [
+            ["O₂, CO₂", "Yes", "Simple diffusion"],
+            ["Water", "Slowly", "Osmosis, plus aquaporins where present"],
+            ["Na⁺, K⁺", "No", "Channels, or the Na⁺/K⁺ pump"],
+            ["Glucose", "No", "Carrier protein (facilitated diffusion)"]
+          ]
+        },
+        {
+          "type": "callout",
+          "tone": "note",
+          "title": "Size is not the deciding factor",
+          "text": "A sodium ion is smaller than a glucose molecule, yet glucose has a transport protein and sodium needs a channel. Charge and solubility in lipid decide, not diameter."
+        }
+      ]
+    },
+    {
+      "id": "passive",
+      "title": "Passive transport: diffusion and osmosis",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Passive transport needs no energy input from the cell. Net movement continues until the gradient is gone, which is why it is described as downhill. Individual molecules still move both ways; only the net direction is one-way."
+        },
+        {
+          "type": "definition",
+          "term": "Facilitated diffusion",
+          "text": "A carrier or channel protein provides a hydrophilic route across the bilayer for a solute moving down its gradient. No ATP is hydrolysed at any step."
+        },
+        {
+          "type": "list",
+          "ordered": false,
+          "items": [
+            "Channels are fast and selective by charge and size; they do not change shape for each solute.",
+            "Carriers bind the solute and change shape, so they are slower and can be saturated.",
+            "Both are passive: block the gradient and net transport stops, even with the protein intact."
+          ]
+        },
+        {
+          "type": "example",
+          "title": "Predicting water movement",
+          "steps": [
+            "A cell with 0.3 M solute sits in a 0.1 M solution.",
+            "Compare solute concentrations: outside is more dilute, so outside water concentration is higher.",
+            "Water moves from higher water concentration to lower, that is, into the cell."
+          ],
+          "answer": "Water enters the cell; the cell swells and may lyse. The solution is hypotonic."
+        }
+      ]
+    },
+    {
+      "id": "active",
+      "title": "Active transport and the pump",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Active transport is uphill: it moves a solute against its electrochemical gradient, so it must be coupled to an energy source. The Na⁺/K⁺ pump exports three sodium ions and imports two potassium ions per ATP, which keeps the inside of the cell negative and high in potassium."
+        },
+        {
+          "type": "compare",
+          "left": { "title": "Facilitated diffusion", "items": ["Down the gradient", "No ATP", "Stops when the gradient disappears", "Can be saturated"] },
+          "right": { "title": "Active transport", "items": ["Against the gradient", "ATP required", "Continues while ATP is supplied", "Can be saturated"] }
+        },
+        {
+          "type": "callout",
+          "tone": "exam",
+          "title": "The comparison examiners want",
+          "text": "Both use membrane proteins and both can be saturated. The difference is the direction relative to the gradient and whether ATP is hydrolysed. Say both points explicitly."
+        }
+      ]
+    },
+    {
+      "id": "traps",
+      "title": "Where marks are lost",
+      "blocks": [
+        {
+          "type": "trap",
+          "wrong": "Active transport is faster than diffusion, so it must use ATP.",
+          "right": "Speed has nothing to do with it; direction relative to the gradient does.",
+          "why": "ATP pays for moving a solute uphill. A fast carrier moving a solute downhill is still passive."
+        },
+        {
+          "type": "trap",
+          "wrong": "Osmosis is the movement of water from high solute to low solute concentration.",
+          "right": "Osmosis is water moving from high water concentration to low water concentration, which is the same as low solute to high solute.",
+          "why": "Stated as written, the sentence reverses the direction. Water follows its own gradient, not the solute's."
+        },
+        {
+          "type": "check",
+          "question": "A cell is placed in distilled water. What happens, and which term applies?",
+          "answer": "Water enters because the outside has the higher water concentration. The solution is hypotonic and the cell swells."
+        }
+      ]
+    }
+  ],
+  "examFocus": [
+    "Compare passive and active transport in a table, naming direction and energy for each.",
+    "Predict and justify net water movement for a cell in a named solution.",
+    "Explain why an ion channel cannot transport glucose."
+  ],
+  "checklist": [
+    "I can state the rule that decides whether a substance crosses the bilayer directly",
+    "I can tell osmosis, facilitated diffusion and active transport apart without hesitating",
+    "I can explain the role of ATP in the Na⁺/K⁺ pump",
+    "I can predict cell volume changes in hypertonic, hypotonic and isotonic solutions"
+  ],
+  "furtherReading": [
+    { "label": "Membrane transport overview (OpenStax Biology)", "url": "https://openstax.org/books/biology-2e/pages/5-2-passive-transport" }
+  ]
+}

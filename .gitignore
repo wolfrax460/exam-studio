@@ -27,3 +27,4 @@ server/samples/
 
 .vercel
 .env*
+apps/landing/tsconfig.app.tsbuildinfo
