@@ -1,0 +1,1055 @@
+/* Paper UI — the app-wide design layer.
+   Loaded after styles.css so it wins on equal specificity. Paper Studio keeps its own
+   palette inside `.esx`, which is more specific than these rules. */
+
+/* Colour values live in styles/tokens.css. */
+
+body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14.5px;
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1100px 520px at 90% -12%, rgba(15, 107, 88, 0.07), transparent 62%),
+    radial-gradient(760px 420px at 2% 0%, rgba(169, 118, 42, 0.08), transparent 60%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+h3 {
+  font-size: 15px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+code,
+pre,
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.app-shell {
+  grid-template-columns: 252px minmax(0, 1fr);
+  background: transparent;
+}
+
+.app-shell .sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 18px 14px 22px;
+  gap: 10px;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+}
+
+.app-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 11px;
+  background: var(--ink);
+  color: var(--gold-soft);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  box-shadow: 0 6px 14px -10px rgba(24, 27, 33, 0.9);
+}
+
+.app-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.app-brand-text strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app-brand-text span {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 12px 4px 2px;
+}
+
+.sidebar-nav {
+  gap: 3px;
+}
+
+.sidebar-nav button {
+  border-radius: 9px;
+  border: 1px solid transparent;
+  padding: 9px 11px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-nav button:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.sidebar-nav button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 8px 18px -14px rgba(15, 107, 88, 0.9);
+}
+
+.sidebar-nav button.link {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 7px 11px;
+}
+
+.app-shell .main {
+  padding: 22px 26px 56px;
+  max-width: 1180px;
+}
+
+.top {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.top h1 {
+  font-size: 27px;
+}
+
+.top .sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.version {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
+.topright .userbox .who {
+  font-size: 12.5px;
+}
+
+.theme-toggle {
+  font-size: 15px;
+  border-radius: 999px;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+}
+
+/* ---------------------------------------------------------------- panels and layout */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.source {
+  border-radius: var(--radius);
+}
+
+.layout {
+  gap: 18px;
+}
+
+.tabs {
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 18px;
+}
+
+.tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tabs button:hover {
+  color: var(--ink);
+  background: transparent;
+}
+
+.tabs button.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.steps {
+  background: var(--panel);
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.steps li {
+  font-size: 12.5px;
+}
+
+.steps .step-no {
+  background: var(--line);
+  color: var(--ink-2);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+}
+
+.steps li.active .step-no {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.steps li.done .step-no {
+  background: var(--ok-bg);
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- type scale */
+
+.sub,
+.hint {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.hint code {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 4px;
+  font-size: 11.5px;
+}
+
+.field > span,
+.inline {
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- controls */
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.dialog select,
+.admin-main select {
+  width: 100%;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  padding: 7px 12px;
+  font-size: 13px;
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.link {
+  color: var(--accent);
+  padding: 3px 4px;
+}
+
+button.link:hover {
+  text-decoration: underline;
+}
+
+button.danger,
+button.link.danger {
+  color: var(--err-ink);
+}
+
+.pill {
+  background: var(--ok-bg);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-family: "JetBrains Mono", monospace;
+  padding: 3px 9px;
+}
+
+.pill.warn {
+  background: var(--warn-bg);
+  color: var(--gold);
+}
+
+.banner {
+  border-radius: 10px;
+  border-left: 3px solid var(--gold);
+  background: var(--warn-bg);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.banner.error {
+  border-left-color: var(--err-ink);
+}
+
+.banner code {
+  font-size: 12px;
+}
+
+.summary {
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-size: 13px;
+  border: 1px solid var(--line);
+}
+
+.summary.good {
+  background: var(--ok-bg);
+  border-color: transparent;
+}
+
+.summary.bad {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+
+.summary.warn {
+  background: var(--warn-bg);
+  border-style: dashed;
+}
+
+.warnings {
+  color: var(--err-ink);
+  font-size: 13px;
+}
+
+.toast {
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+}
+
+.chip {
+  font-size: 13px;
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px 10px;
+}
+
+legend {
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 5px;
+}
+
+/* ---------------------------------------------------------------- question editor / exam view */
+
+.questions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.q {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 13px 15px;
+  margin-bottom: 0;
+}
+
+.q::before {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+
+.qtype {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.qhead {
+  gap: 10px;
+}
+
+.option-list fieldset {
+  background: var(--bg);
+}
+
+.option-row {
+  grid-template-columns: 26px minmax(0, 1fr) 150px;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.option-row .qtype {
+  color: var(--gold);
+  font-size: 11px;
+}
+
+.lines {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13px;
+}
+
+.lines.ans {
+  background: var(--ok-bg);
+  border-color: transparent;
+}
+
+details summary {
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.exam-section {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+
+/* ---------------------------------------------------------------- flashcards */
+
+.cards {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px;
+  min-height: 104px;
+  box-shadow: var(--shadow);
+}
+
+.card.trap {
+  border-left: 3px solid var(--accent);
+}
+
+.card .front {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.card .back {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- library */
+
+.library {
+  display: grid;
+  gap: 8px;
+}
+
+.library li {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 11px 14px;
+  gap: 12px;
+}
+
+.library li:hover {
+  border-color: var(--line-strong);
+}
+
+.library time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 22px;
+  font-size: 13px;
+  background: var(--panel);
+}
+
+/* ---------------------------------------------------------------- handout */
+
+.handout-unit {
+  border-top: 2px solid var(--ink);
+  margin-top: 26px;
+}
+
+.handout-unit h2 {
+  font-size: 21px;
+}
+
+.handout-lesson {
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 40%);
+  border-radius: 0 10px 10px 0;
+  padding: 10px 0 10px 14px;
+  margin: 18px 0;
+}
+
+.handout-table {
+  font-size: 13px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.handout-table th {
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+}
+
+.handout-table th,
+.handout-table td {
+  border-color: var(--line);
+  padding: 6px 9px;
+}
+
+.callout {
+  border-radius: 10px;
+  border-left: 3px solid var(--line-strong);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.callout.tip {
+  border-left-color: var(--gold);
+}
+
+.callout.remember {
+  border-left-color: var(--accent);
+}
+
+.callout.trap {
+  border-left-color: var(--err-ink);
+}
+
+.worked-example {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px 15px;
+}
+
+.worked-example .we-title {
+  color: var(--accent);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 14px;
+}
+
+.mono {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11.5px;
+  padding: 9px 11px;
+}
+
+.block-heading {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 14.5px;
+  margin: 12px 0 5px;
+}
+
+.checklist {
+  font-size: 13px;
+}
+
+.handout-end {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.publish-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.publish-card h3 {
+  font-size: 15px;
+}
+
+/* ---------------------------------------------------------------- progress */
+
+.progress-bar {
+  height: 6px;
+  background: var(--line);
+}
+
+/* ---------------------------------------------------------------- dialogs */
+
+.overlay {
+  background: rgba(18, 23, 20, 0.5);
+  backdrop-filter: blur(3px);
+}
+
+.dialog,
+.modal-card,
+.admin-modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.5);
+  color: var(--ink);
+}
+
+.dialog-head h2,
+.modal-card h2,
+.admin-modal h2 {
+  font-size: 21px;
+}
+
+.dialog .field > span,
+.modal-card .field > span {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.own-provider {
+  border-top: 1px dashed var(--line-strong);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.own-provider h3 {
+  color: var(--accent);
+}
+
+.update-box {
+  border-top: 1px dashed var(--line-strong);
+}
+
+.paths code {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+/* ---------------------------------------------------------------- sign in */
+
+.auth-container {
+  padding: 40px 0;
+}
+
+.auth-box {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 26px 24px 20px;
+  box-shadow: var(--shadow);
+}
+
+.auth-box h2 {
+  font-size: 23px;
+}
+
+.auth-container .top {
+  max-width: 940px;
+  margin: 0 auto 8px;
+}
+
+.auth-container > .top h1 {
+  font-size: 32px;
+}
+
+.auth-intro,
+.auth-foot {
+  font-size: 13px;
+}
+
+.auth-submit {
+  padding: 11px;
+  border-radius: 9px;
+}
+
+/* ---------------------------------------------------------------- admin */
+
+.admin {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.admin-head h1 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 25px;
+}
+
+.admin-tabs {
+  border-bottom: 1px solid var(--line);
+  gap: 4px;
+}
+
+.admin-tabs button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12.5px;
+  padding: 6px 13px;
+  color: var(--ink-2);
+}
+
+.admin-tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.admin-main,
+.admin-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.admin-main h2 {
+  font-size: 19px;
+}
+
+.admin-main th {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.admin-main td {
+  font-size: 13px;
+}
+
+.admin-main input,
+.admin-main select,
+.admin-main textarea {
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+.admin-main button {
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+
+.admin-main button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.admin-modal-backdrop {
+  background: rgba(18, 23, 20, 0.55);
+}
+
+.badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  border: 1px solid transparent;
+}
+
+.admin-field label {
+  font-size: 12.5px;
+}
+
+/* ---------------------------------------------------------------- public exam page */
+
+.take-shell {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(900px 420px at 90% -10%, rgba(15, 107, 88, 0.1), transparent 60%),
+    radial-gradient(600px 360px at 0% 0%, rgba(169, 118, 42, 0.09), transparent 60%);
+  color: var(--ink);
+  min-height: 100vh;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.take-top {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.take-top strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.take-timer {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+.take-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.take-start h1 {
+  font-size: 27px;
+}
+
+.take-question h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.take-option {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--field);
+  font-size: 14px;
+}
+
+.take-option:hover {
+  border-color: var(--accent);
+}
+
+.take-option.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.take-essay {
+  background: var(--field);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+}
+
+.take-nav button {
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+
+.take-nav button.answered {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.take-nav button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.take-primary,
+.take-secondary {
+  border-radius: 9px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+.take-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.take-muted {
+  color: var(--muted);
+}
+
+.take-field input {
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  border-radius: 9px;
+}
+
+.take-score {
+  font-family: "Fraunces", Georgia, serif;
+  color: var(--accent);
+}
+
+.take-feedback {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  font-size: 13px;
+}
+
+.take-error {
+  color: var(--err-ink);
+}
+
+@media (max-width: 1023px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell .sidebar {
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .app-brand {
+    padding-bottom: 10px;
+    margin-bottom: 2px;
+  }
+
+  .app-shell .main {
+    padding: 16px 16px 40px;
+  }
+}
+
+@media (max-width: 599px) {
+  .app-shell .main {
+    padding: 12px 12px 32px;
+  }
+
+  .top h1 {
+    font-size: 23px;
+  }
+}

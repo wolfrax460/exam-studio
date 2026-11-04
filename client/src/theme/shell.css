@@ -1,0 +1,332 @@
+/* Shell layout: full-width canvas, collapsible navigation rail, focus mode.
+   Loaded after paper-ui.css; colour comes only from tokens. */
+
+.app-shell {
+  grid-template-columns: 252px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-shell .main {
+  max-width: none;
+  width: 100%;
+  padding: 24px 32px 64px;
+}
+
+.app-shell .main > .top,
+.app-shell .main > .layout,
+.app-shell .main > .banner {
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---------------------------------------------------------------- icon buttons */
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.icon-btn.is-on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+/* ---------------------------------------------------------------- collapsible rail */
+
+.app-shell.nav-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.nav-collapsed .app-brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.nav-collapsed .app-brand-text,
+.nav-collapsed .nav-label {
+  display: none;
+}
+
+.nav-collapsed .sidebar-nav button {
+  justify-content: center;
+  text-align: center;
+  padding: 10px 6px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  min-height: 44px;
+}
+
+.nav-collapsed .sidebar-nav button.link {
+  font-size: 10.5px;
+}
+
+/* ---------------------------------------------------------------- focus mode */
+
+.app-shell.focus-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.focus-mode > .sidebar {
+  display: none;
+}
+
+.focus-mode .source {
+  display: none;
+}
+
+.focus-mode .layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.focus-mode .app-shell .main,
+.focus-mode .main {
+  padding-inline: clamp(16px, 3vw, 48px);
+}
+
+/* ---------------------------------------------------------------- split layout */
+
+.layout {
+  grid-template-columns: minmax(320px, 30%) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.layout > .source,
+.layout > .work {
+  min-width: 0;
+}
+
+/* Paper Studio is a page, not a card: it owns the whole work area. */
+.layout.layout-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.layout.layout-wide > .source {
+  display: none;
+}
+
+.layout.layout-wide > .work {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------- notes panel */
+
+.source {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: var(--space-5);
+}
+
+.source h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+}
+
+.source .notes-lib {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.source .notes-lib-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 240px;
+  overflow-y: auto;
+  margin: var(--space-2) 0;
+}
+
+.source .notes-lib-cards .card {
+  min-height: 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  gap: 2px;
+  transform: none;
+}
+
+.source .notes-lib-cards .card .front {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.source .notes-lib-cards .card .hint {
+  font-size: 11px;
+}
+
+.source textarea {
+  min-height: 180px;
+}
+
+.source .field > span {
+  font-size: 11.5px;
+}
+
+/* ---------------------------------------------------------------- work header */
+
+.work > .steps {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  backdrop-filter: blur(8px);
+}
+
+.work .tabs {
+  margin-top: var(--space-3);
+}
+
+/* ---------------------------------------------------------------- responsive */
+
+@media (max-width: 1280px) {
+  .app-shell .main {
+    padding: 20px 24px 56px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(300px, 34%) minmax(0, 1fr);
+  }
+
+  .layout.layout-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1023px) {
+  .app-shell,
+  .app-shell.nav-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 12px;
+  }
+
+  .app-shell .main {
+    padding: 16px 16px 48px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .source {
+    position: static;
+    max-height: none;
+  }
+
+  .icon-btn.nav-toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 599px) {
+  .app-shell .main {
+    padding: 12px 12px 40px;
+  }
+
+  .topright {
+    gap: 6px;
+  }
+}
+
+/* Phones: the sidebar already carries Settings and Agents, so the account row keeps only
+   the actions that are not reachable there. */
+@media (max-width: 599px) {
+  .topright .userbox button:not(:last-child) {
+    display: none;
+  }
+
+  .topright .userbox .who {
+    max-width: 120px;
+  }
+
+  .topright .pill {
+    font-size: 10.5px;
+  }
+}
+
+/* Phones and tablets: the navigation collapses to one compact, scrollable strip so the
+   work area starts near the top of the screen. */
+@media (max-width: 1023px) {
+  .app-shell .sidebar {
+    padding: 8px 10px;
+  }
+
+  .app-brand {
+    padding: 0 0 6px;
+    border-bottom: 0;
+    margin-bottom: 0;
+  }
+
+  .app-brand-mark {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .app-brand-text,
+  .nav-label {
+    display: none;
+  }
+
+  .sidebar-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 4px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .sidebar-nav button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 38px;
+    padding: 7px 11px;
+    font-size: 12.5px;
+  }
+
+  .sidebar-nav button.link {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .sidebar-nav::-webkit-scrollbar {
+    height: 0;
+  }
+}

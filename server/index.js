@@ -2185,7 +2185,9 @@ app.get('/api/admin/system', ...adminGuard, wrap(async (_req, res) => {
   res.json(await admin.systemInfo());
 }));
 app.get('/api/admin/ai-health', ...adminGuard, wrap(async (_req, res) => {
-  res.json(admin.getAIHealth());
+  let health = null;
+  try { health = admin.getAIHealth(); } catch { health = null; }
+  res.json(health);
 }));
 app.post('/api/admin/diagnostics', ...adminGuard, wrap(async (req, res) => {
   const id = s(req.body?.id, 40);

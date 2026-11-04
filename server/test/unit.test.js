@@ -212,3 +212,27 @@ describe('partsFor', () => {
     });
   });
 });
+
+describe('AI health metrics', () => {
+  it('remembers the last success and the last error, and stays small', async () => {
+    const admin = await import('../lib/adminStore.js');
+
+    admin.recordAISuccess(1234);
+    const ok = admin.getAIHealth();
+    assert.ok(ok.lastSuccessAt);
+    assert.equal(ok.lastLatency, 1234);
+
+    admin.recordAIFailure(new Error('provider said no'));
+    const failed = admin.getAIHealth();
+    assert.ok(failed.lastErrorAt);
+    assert.equal(failed.lastError, 'provider said no');
+
+    // The record is in memory and read by a public admin page, so it must stay bounded.
+    admin.recordAIFailure(new Error('x'.repeat(1000)));
+    assert.equal(admin.getAIHealth().lastError.length, 300);
+
+    // Junk still has to leave something readable behind.
+    admin.recordAIFailure(null);
+    assert.equal(admin.getAIHealth().lastError, 'unknown');
+  });
+});

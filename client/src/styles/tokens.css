@@ -1,0 +1,238 @@
+/* Design tokens — the single source of truth.
+   Legacy names (--bg, --panel, --ink, ...) are aliases so existing rules keep working.
+   Paper Studio reads the --paper-* set, which is why it now follows the theme. */
+
+:root,
+[data-theme="light"] {
+  /* semantic colour */
+  --color-bg: #f4f1ea;
+  --color-surface: #fffdf9;
+  --color-surface-2: #efe9dd;
+  --color-border: #e2dbcc;
+  --color-border-strong: #cfc5b1;
+  --color-text: #171a20;
+  --color-text-muted: #646d79;
+  --color-accent: #0f6b58;
+  --color-accent-hover: #0c5747;
+  --color-accent-contrast: #ffffff;
+  --color-success: #17694a;
+  --color-warning: #9a6a22;
+  --color-danger: #a83a2c;
+  --color-info: #2f6f9f;
+
+  /* paper (the document metaphor: exam sheet, preview, print) */
+  --paper-bg: #f8f5ee;
+  --paper-surface: #fffdf9;
+  --paper-ink: #171a20;
+  --paper-ink-2: #454c58;
+  --paper-muted: #6f7784;
+  --paper-border: #e4ddcf;
+  --paper-border-strong: #d3c9b6;
+  --paper-accent-soft: #e4efe9;
+  --paper-gold-soft: #f4ead6;
+  --paper-ok-soft: #e2f1e8;
+  --paper-danger-soft: #fbe9e5;
+  --paper-wash:
+    radial-gradient(1100px 520px at 90% -12%, rgba(15, 107, 88, 0.07), transparent 62%),
+    radial-gradient(760px 420px at 2% 0%, rgba(154, 106, 34, 0.08), transparent 60%);
+
+  /* type */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-3xl: 36px;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-reading: 1.65;
+
+  /* space, radius, elevation, motion */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(23, 26, 32, 0.06);
+  --shadow-md: 0 18px 40px -32px rgba(23, 26, 32, 0.5);
+  --shadow-lg: 0 30px 70px -34px rgba(23, 26, 32, 0.45);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  /* legacy aliases */
+  --bg: var(--color-bg);
+  --panel: var(--color-surface);
+  --ink: var(--color-text);
+  --ink-2: var(--paper-ink-2);
+  --muted: var(--color-text-muted);
+  --line: var(--color-border);
+  --line-strong: var(--color-border-strong);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --accent-ink: var(--color-accent-contrast);
+  --accent-soft: var(--paper-accent-soft);
+  --gold: var(--color-warning);
+  --gold-soft: var(--paper-gold-soft);
+  --ok-bg: var(--paper-ok-soft);
+  --warn-bg: var(--paper-gold-soft);
+  --err-bg: var(--paper-danger-soft);
+  --err-ink: var(--color-danger);
+  --field: var(--color-surface);
+  --radius: var(--radius-md);
+  --shadow: var(--shadow-md);
+}
+
+[data-theme="dark"] {
+  --color-bg: #101513;
+  --color-surface: #1a211d;
+  --color-surface-2: #222b26;
+  --color-border: #2d3731;
+  --color-border-strong: #3d4a43;
+  --color-text: #eef2ec;
+  --color-text-muted: #9aa7a0;
+  --color-accent: #58b795;
+  --color-accent-hover: #6fc9a9;
+  --color-accent-contrast: #07130e;
+  --color-success: #63c795;
+  --color-warning: #d8a963;
+  --color-danger: #f0917f;
+  --color-info: #86bce0;
+
+  --paper-bg: #141a17;
+  --paper-surface: #1c2320;
+  --paper-ink: #eef2ec;
+  --paper-ink-2: #cbd4cd;
+  --paper-muted: #96a39c;
+  --paper-border: #313c36;
+  --paper-border-strong: #46534b;
+  --paper-accent-soft: #1e3a2f;
+  --paper-gold-soft: #342b1b;
+  --paper-ok-soft: #1b3428;
+  --paper-danger-soft: #3a2220;
+  --paper-wash:
+    radial-gradient(900px 460px at 92% -12%, rgba(88, 183, 149, 0.1), transparent 62%),
+    radial-gradient(620px 360px at 0% 0%, rgba(216, 169, 99, 0.06), transparent 60%);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 18px 40px -30px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 30px 70px -34px rgba(0, 0, 0, 0.9);
+
+  --bg: var(--color-bg);
+  --panel: var(--color-surface);
+  --ink: var(--color-text);
+  --ink-2: var(--paper-ink-2);
+  --muted: var(--color-text-muted);
+  --line: var(--color-border);
+  --line-strong: var(--color-border-strong);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --accent-ink: var(--color-accent-contrast);
+  --accent-soft: var(--paper-accent-soft);
+  --gold: var(--color-warning);
+  --gold-soft: var(--paper-gold-soft);
+  --ok-bg: var(--paper-ok-soft);
+  --warn-bg: var(--paper-gold-soft);
+  --err-bg: var(--paper-danger-soft);
+  --err-ink: var(--color-danger);
+  --field: var(--color-surface);
+}
+
+/* A user who has never touched the toggle follows the operating system. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-bg: #101513;
+    --color-surface: #1a211d;
+    --color-surface-2: #222b26;
+    --color-border: #2d3731;
+    --color-border-strong: #3d4a43;
+    --color-text: #eef2ec;
+    --color-text-muted: #9aa7a0;
+    --color-accent: #58b795;
+  --color-accent-hover: #6fc9a9;
+    --color-accent-contrast: #07130e;
+    --color-success: #63c795;
+    --color-warning: #d8a963;
+    --color-danger: #f0917f;
+    --color-info: #86bce0;
+
+    --paper-bg: #141a17;
+    --paper-surface: #1c2320;
+    --paper-ink: #eef2ec;
+    --paper-ink-2: #cbd4cd;
+    --paper-muted: #96a39c;
+    --paper-border: #313c36;
+    --paper-border-strong: #46534b;
+    --paper-accent-soft: #1e3a2f;
+    --paper-gold-soft: #342b1b;
+    --paper-ok-soft: #1b3428;
+    --paper-danger-soft: #3a2220;
+    --paper-wash: none;
+
+    --bg: var(--color-bg);
+    --panel: var(--color-surface);
+    --ink: var(--color-text);
+    --ink-2: var(--paper-ink-2);
+    --muted: var(--color-text-muted);
+    --line: var(--color-border);
+    --line-strong: var(--color-border-strong);
+    --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+    --accent-ink: var(--color-accent-contrast);
+    --accent-soft: var(--paper-accent-soft);
+    --gold: var(--color-warning);
+    --gold-soft: var(--paper-gold-soft);
+    --ok-bg: var(--paper-ok-soft);
+    --warn-bg: var(--paper-gold-soft);
+    --err-bg: var(--paper-danger-soft);
+    --err-ink: var(--color-danger);
+    --field: var(--color-surface);
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-serif);
+  line-height: var(--leading-tight);
+}
+
+/* Long reading surfaces get a slightly larger, airier setting. */
+.doc,
+.handout-unit,
+.handout-lesson,
+.note,
+.esx-paper,
+.esx-lede,
+.esx-review-prompt {
+  font-size: 17px;
+  line-height: var(--leading-reading);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
