@@ -51,3 +51,8 @@ Pull main. `npm run setup && npm test && npm run create-admin`.
 - MCP publish/result tools and 375/768/1280 screenshots are NOT done.
 - Admin dashboard restyle is NOT done: reference/admin-layout.png is still missing.
 - Server tests: 198 passing.
+
+## Update 2026-11-04: Task 2 housekeeping
+- Housekeeping: Moved 9 untracked mock PNGs (paper-studio-*.png, study-guide*.png, theme-*.png, source-picker.png) to screenshots/ directory; committed Task 2 files (notes-format.js, notes-demo.json, NotesReader.jsx, notes-reader.css, main.jsx, notes-format.test.js).
+- Fixed: apps/landing/tsconfig.app.tsbuildinfo added to .gitignore, removed from tracking.
+- All tests pass: 209 server + 16 client.
