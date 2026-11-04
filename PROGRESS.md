@@ -56,3 +56,10 @@ Pull main. `npm run setup && npm test && npm run create-admin`.
 - Housekeeping: Moved 9 untracked mock PNGs (paper-studio-*.png, study-guide*.png, theme-*.png, source-picker.png) to screenshots/ directory; committed Task 2 files (notes-format.js, notes-demo.json, NotesReader.jsx, notes-reader.css, main.jsx, notes-format.test.js).
 - Fixed: apps/landing/tsconfig.app.tsbuildinfo added to .gitignore, removed from tracking.
 - All tests pass: 209 server + 16 client.
+
+## Update 2026-11-04: Deployment complete
+- Backend deployed successfully: https://examstudio.duckdns.org/health/ai → ok:true (latency 2069ms)
+- Frontend deployed: https://exams-studio.vercel.app and https://examstudio.duckdns.org/app
+- Bundle verified: index-CcoKA8M_.js + index-D7c2v8GG.css
+- All tests pass: 209 server + 16 client
+- GitHub: 4 commits pushed (Task 2 housekeeping + NotesReader feature)
