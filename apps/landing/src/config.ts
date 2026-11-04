@@ -1,5 +1,7 @@
 export type FaqItem = { q: string; a: string };
 
+const backend = String(import.meta.env.VITE_BACKEND_URL || 'https://examstudio.duckdns.org');
+
 export const config = {
   brand: { name: 'Exam Studio' },
   links: {
@@ -40,9 +42,9 @@ export const config = {
   ],
   desktop: {
     version: '0.2.1', fileSize: 'Windows setup 171 MB / Linux zip 194 MB', notes: 'Requires setting the server address after install.',
-    windows: String(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100') + '/downloads/Exam-Studio-Setup-0.2.1.exe',
+    windows: backend + '/downloads/Exam-Studio-Setup-0.2.1.exe',
     mac: 'https://github.com/wolfrax460/exam-studio/releases',
-    linux: String(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3100') + '/downloads/Exam-Studio-0.2.1.zip'
+    linux: backend + '/downloads/Exam-Studio-0.2.1.zip'
   },
   desktopReleasesUrl: 'https://github.com/wolfrax460/exam-studio/releases',
   faq: [

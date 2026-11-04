@@ -1,5 +1,13 @@
-<!doctype html><html lang='en' class='dark'><head>
+<!doctype html><html lang='en'><head>
 <meta charset='utf-8' />
+<script>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('examstudio-theme'); } catch (e) {}
+    var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.classList.toggle('dark', dark);
+  })();
+</script>
 <link rel='icon' type='image/svg+xml' href='/icon.svg' />
 <link rel='icon' type='image/x-icon' href='/favicon.ico' />
 <link rel='apple-touch-icon' href='/icon-192.png' />
@@ -10,7 +18,21 @@
 <meta property='og:description' content='Turn course notes into study notes, handouts, exams and flashcards.' />
 <meta property='og:type' content='website' />
 <meta property='og:image' content='https://exams-studio.vercel.app/icon.svg' />
-<meta name='twitter:card' content='summary' />
+<meta name='twitter:card' content='summary_large_image' />
 <meta name='twitter:title' content='Exam Studio' />
 <meta name='twitter:description' content='Turn course notes into study notes, handouts, exams and flashcards.' />
+<meta name='robots' content='index,follow' />
+<link rel='canonical' href='https://exams-studio.vercel.app/' />
+<meta property='og:url' content='https://exams-studio.vercel.app/' />
+<meta property='og:site_name' content='Exam Studio' />
+<meta property='og:image' content='https://exams-studio.vercel.app/icon-512.png' />
+<meta property='og:image:width' content='512' />
+<meta property='og:image:height' content='512' />
+<meta property='og:image:alt' content='Exam Studio app icon' />
+<meta name='twitter:image' content='https://exams-studio.vercel.app/icon-512.png' />
+<meta name='theme-color' content='#f6f3ec' media='(prefers-color-scheme: light)' />
+<meta name='theme-color' content='#151a17' media='(prefers-color-scheme: dark)' />
+<script type='application/ld+json'>
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Exam Studio","applicationCategory":"EducationalApplication","operatingSystem":"Web, Windows, Linux","url":"https://exams-studio.vercel.app/","description":"Exam Studio reads your course notes and generates study notes, printable handouts, exams with separate marking schemes and flashcards.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
 </head><body><div id='root'></div><script type='module' src='/src/main.tsx'></script></body></html>

@@ -10,6 +10,7 @@ import AITools from './components/AITools';
 import Desktop from './components/Desktop';
 import FAQ from './components/FAQ';
 import { Privacy, Terms } from './components/Legal';
+import FaqSchema from './components/FaqSchema';
 import ResetPassword from './components/ResetPassword';
 function RefundRedirect(){ window.location.replace('/terms'); return null; }
 import Contact from './components/Contact';
@@ -69,6 +70,7 @@ export default function App() {
         <Free />
         <AITools />
         <Desktop />
+        <FaqSchema />
         <FAQ />
         <Contact />
         <Changelog />
