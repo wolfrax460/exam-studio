@@ -8,7 +8,8 @@ import Agents from './Agents.jsx';
 import TakeExam from './TakeExam.jsx';
 import PublishOnline from './PublishOnline.jsx';
 import PaperStudio from './studio/PaperStudio.jsx';
-import SourcePicker from './SourcePicker.jsx';const TABS = [
+import SourcePicker from './SourcePicker.jsx';
+import LibraryTab from './tabs/LibraryTab.jsx';const TABS = [
   ['guide', 'Study guide'],
   ['studio', 'Paper studio'],
   ['library', 'Library'],
@@ -752,7 +753,7 @@ export default function App() {
               )}
 
               {tab === 'library' && (
-                <Library onOpen={(item) => {
+                <LibraryTab onOpen={(item) => {
                   if (item.kind === 'exam') { setExam(item.data); setTab('studio'); setStudioView('generate'); }
                   if (item.kind === 'notes') { setNotes(item.data); setTab('guide'); setGuideMode('notes'); }
                   if (item.kind === 'flashcards') { setCards(item.data); setTab('studio'); setStudioView('flashcards'); }
@@ -1245,29 +1246,6 @@ function CardsView({ cards, onSave }) {
   );
 }
 
-function Library({ onOpen }) {
-  const [items, setItems] = useState(null);
-  const [err, setErr] = useState('');
-  const load = () => get('/library').then(setItems).catch((e) => setErr(e.message));
-  useEffect(() => { load(); }, []);
-  const open = async (id) => { try { onOpen(await get(`/library/${id}`)); } catch (e) { setErr(e.message); } };
-  const remove = async (id) => { if (window.confirm('Delete this item?')) { try { await del(`/library/${id}`); load(); } catch (e) { setErr(e.message); } } };
-  if (err) return <p className="banner error">{err}</p>;
-  if (!items) return <p className="empty">Loading…</p>;
-  if (!items.length) return <p className="empty">Nothing saved yet. Use "Save to library" on any result.</p>;
-  return (
-    <ul className="library">
-      {items.map((it) => (
-        <li key={it.id}>
-          <span className="qtype">{it.kind}</span>
-          <button className="link grow" onClick={() => open(it.id)}>{it.title}</button>
-          <time>{new Date(it.createdAt).toLocaleDateString()}</time>
-          <button className="link" onClick={() => remove(it.id)}>Delete</button>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 // ---------------------------------------------------------------- study handout
 // Where the marking scheme scores the exam, a handout is judged by coverage: is there one lesson

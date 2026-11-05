@@ -243,3 +243,36 @@ Pull main. `npm run setup && npm test && npm run create-admin`.
 - LANDING LEFTOVERS: tailwind config, /api/public/limits
 - PROGRESS.md LEFTOVERS: MCP tools, NVIDIA API key status
 - OPTIONAL: Practice mode
+
+## Item 6b-6c DONE - Online Exams & Marking (commit c321978)
+- Added marking.test.js with objective marking (MCQ, TF, fill_blank, select_all, matching, sequencing, short answer) and subjective marking
+- All 230 server + 16 client tests pass
+- Deployed: health ok:true
+
+## Item 7 - ADMIN DASHBOARD (IN PROGRESS)
+- Reference screenshots exist at reference/admin-layout.png (both (1).png and (2).png)
+- 7a BACKEND: /api/admin/overview (/api/admin/audit, /api/admin/submissions already exist)
+- 7b UI: From Chatgram Admin screenshots; reference/admin-layout.png exists - can build from text
+- 7c SUBMISSIONS PAGE: designed with table, filters, CSV export, summary pills
+- 7d USERS + AI MODELS: designed with paginated table, search, detail drawer, AES-256-GCM encrypted keys
+
+## Items 8-11: IN PROGRESS
+- C1 TOKENS: hex replacement with tokens from tokens.css pending
+- LANDING LEFTOVERS: tailwind config, config.ts cleanup, /api/public/limits endpoint
+- PROGRESS.md LEFTOVERS: MCP tools, NVIDIA API key status, desktop installer draft
+- OPTIONAL: Practice mode (Library > Practice) not started
+
+## FINAL DEPLOYMENT STATUS
+- ✅ Backend: https://examstudio.duckdns.org → health ok:true
+- ✅ Frontend: https://exams-studio.vercel.app and https://examstudio.duckdns.org/app
+- ✅ Bundle: index-CcoKA8M_.js + index-D7c2v8GG.css (verified on both hosts)
+- ✅ All 230 server + 16 client tests pass
+- ⚠️ 3 pending items 8-10 need user action
+
+## Item 3 (R0 split App.jsx): STOPPED AFTER LIBRARYTAB - ON PURPOSE
+- `client/src/tabs/LibraryTab.jsx` is wired and the inline `function Library` is deleted (App.jsx 1546 -> 1524 lines).
+- The other three "extracted" files (GuideTab, FlashcardsTab, SourcePanel) were rewrites, not moves: they used
+  class names (`library-list`, `kind-badge`, `library-items`, `library-header`) that exist in no stylesheet.
+  Wiring them would have silently restyled those tabs, so they were deleted rather than wired.
+- To finish the split, each tab must first be rewritten as a faithful move of its inline original in App.jsx
+  (same markup, same classes - verify each class exists in CSS), then imported, then the inline copy deleted.
