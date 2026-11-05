@@ -1,0 +1,150 @@
+import assert from 'node:assert/strict';
+import { test, describe, before, after, beforeEach } from 'node:test';
+import crypto from 'node:crypto';
+import { bootApi, call, makeUser, dropTestDatabase } from './helpers.js';
+
+describe('Online Exams - Server Gaps', () => {
+  let api, ownerToken, studentToken, examId, shareCode;
+
+  before(async () => {
+    api = await bootApi({ DEMO_MODE: '1', TAKE_LIMIT_PER_HOUR: '10000', EXAM_STUDIO_ALLOW_REMOTE_SETTINGS: '1' });
+    await dropTestDatabase();
+    const owner = await makeUser(api.base);
+    ownerToken = owner.token;
+    const res = await call(api.base, '/api/library', { method: 'POST', token: ownerToken, body: { kind: 'exam', data: { title: 'Test Exam', layout: 'sections-a-e', moduleCode: 'TEST101', moduleName: 'Test Module', level: 'L4', trade: 'Test', school: 'Test School', duration: '3 hours', targetMarks: 100, sections: [
+      { id: 'A', kind: 'mcq', title: 'MCQ', marks: 30, marksPerItem: 1, items: [{ text: 'Q1', options: ['A','B','C','D'], answer: 'A' }] },
+      { id: 'B', kind: 'true_false', title: 'T/F', marks: 10, marksPerItem: 1, items: [{ text: 'Q2', answer: 'True' }] },
+      { id: 'C', kind: 'fill_blank', title: 'Fill', marks: 10, marksPerItem: 1, items: [{ text: 'Fill ________', answer: 'word' }] },
+      { id: 'D', kind: 'short_answer', title: 'SA', marks: 20, marksPerItem: 2, items: [{ text: 'SA Q', marks: 2, answer: 'Ans', markingPoints: [] }] },
+      { id: 'E', kind: 'structured', title: 'Struct', marks: 30, marksPerItem: 0, items: [{ title: 'Struct Q', totalMarks: 8, parts: [{ letter: 'a', text: 'part', marks: 4 }], markingPoints: [{ point: 'pt', marks: 4 }] }] }
+    ]}, title: 'Test Exam' } });
+    assert.equal(res.status, 201);
+    examId = res.body.id;
+    const pubRes = await call(api.base, `/api/exams/${examId}/publish`, { method: 'POST', token: ownerToken, body: { durationMinutes: 60, maxAttempts: 1, requireName: true } });
+    assert.equal(pubRes.status, 201);
+    shareCode = pubRes.body.publication.shareCode;
+  });
+
+  after(async () => {
+    await api.close();
+  });
+
+  describe('GET /api/take/:shareCode - Info', () => {
+    test('returns exam info without answers/marking', async () => {
+      const res = await call(api.base, `/api/take/${shareCode}`);
+      assert.equal(res.status, 200);
+      assert.ok(res.body.exam);
+      assert.ok(res.body.questionCount > 0);
+      assert.ok(res.body.totalMarks > 0);
+      const str = JSON.stringify(res.body);
+      assert.ok(!str.includes('answer'));
+      assert.ok(!str.includes('markingPoints'));
+      assert.ok(!str.includes('modelAnswer'));
+    });
+
+    test('404 for invalid shareCode', async () => {
+      const res = await call(api.base, '/api/take/invalid123');
+      assert.equal(res.status, 404);
+    });
+  });
+
+  describe('POST /api/take/:shareCode/start - Start attempt', () => {
+    test('requires name when requireName=true', async () => {
+      const res = await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: {} });
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error.includes('name'));
+    });
+
+    test('starts attempt with name', async () => {
+      const res = await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: { participantName: 'John Doe' } });
+      assert.equal(res.status, 201);
+      assert.ok(res.body.attemptId);
+      assert.ok(res.body.attemptToken);
+      assert.ok(res.body.deadlineAt);
+      assert.ok(res.body.questions);
+      for (const q of res.body.questions) {
+        assert.ok(!q.answer);
+        assert.ok(!q.correct);
+        assert.ok(!q.markingPoints);
+      }
+    });
+
+    test('enforces maxAttempts', async () => {
+      await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: { participantName: 'John Doe' } });
+      const res = await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: { participantName: 'John Doe' } });
+      assert.equal(res.status, 429);
+      assert.ok(res.body.error.includes('attempts'));
+    });
+
+    test('checks opensAt', async () => {
+      const res2 = await call(api.base, '/api/library', { method: 'POST', token: ownerToken, body: { kind: 'exam', data: { title: 'Test Exam 2', layout: 'sections-a-e', moduleCode: 'TEST102', moduleName: 'Test Module 2', level: 'L4', trade: 'Test', school: 'Test School', duration: '3 hours', targetMarks: 100, sections: [
+        { id: 'A', kind: 'mcq', title: 'MCQ', marks: 30, marksPerItem: 1, items: [{ text: 'Q1', options: ['A','B','C','D'], answer: 'A' }] },
+      ]}, title: 'Test Exam 2' } });
+      const examId2 = res2.body.id;
+      const future = new Date(Date.now() + 3600000).toISOString();
+      const pub = await call(api.base, `/api/exams/${examId2}/publish`, { method: 'POST', token: ownerToken, body: { opensAt: future } });
+      const res = await call(api.base, `/api/take/${pub.body.publication.shareCode}/start`, { method: 'POST', body: { participantName: 'Test' } });
+      assert.equal(res.status, 403);
+    });
+
+    test('checks closesAt', async () => {
+      const res2 = await call(api.base, '/api/library', { method: 'POST', token: ownerToken, body: { kind: 'exam', data: { title: 'Test Exam 3', layout: 'sections-a-e', moduleCode: 'TEST103', moduleName: 'Test Module 3', level: 'L4', trade: 'Test', school: 'Test School', duration: '3 hours', targetMarks: 100, sections: [
+        { id: 'A', kind: 'mcq', title: 'MCQ', marks: 30, marksPerItem: 1, items: [{ text: 'Q1', options: ['A','B','C','D'], answer: 'A' }] },
+      ]}, title: 'Test Exam 3' } });
+      const examId3 = res2.body.id;
+      const past = new Date(Date.now() - 3600000).toISOString();
+      const pub = await call(api.base, `/api/exams/${examId3}/publish`, { method: 'POST', token: ownerToken, body: { closesAt: past } });
+      const res = await call(api.base, `/api/take/${pub.body.publication.shareCode}/start`, { method: 'POST', body: { participantName: 'Test' } });
+      assert.equal(res.status, 403);
+    });
+  });
+
+  describe('PUT /api/take/attempts/:id/answers - Autosave', () => {
+    let attemptId, attemptToken;
+
+    beforeEach(async () => {
+      const res = await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: { participantName: 'Test Student' } });
+      assert.equal(res.status, 201);
+      attemptId = res.body.attemptId;
+      attemptToken = res.body.attemptToken;
+    });
+
+    test('autosaves answers', async () => {
+      const res = await call(api.base, `/api/take/attempts/${attemptId}/answers`, { method: 'PUT', token: attemptToken, body: { answers: { 'Q-1': 'A' } } });
+      assert.equal(res.status, 200);
+      assert.ok(res.body.autosavedAt);
+    });
+
+    test('validates answer size', async () => {
+      const long = 'x'.repeat(25000);
+      const res = await call(api.base, `/api/take/attempts/${attemptId}/answers`, { method: 'PUT', token: attemptToken, body: { answers: { 'Q-1': long } } });
+      assert.equal(res.status, 413);
+    });
+  });
+
+  describe('POST /api/take/attempts/:id/submit - Submit', () => {
+    let attemptId, attemptToken;
+
+    beforeEach(async () => {
+      const res = await call(api.base, `/api/take/${shareCode}/start`, { method: 'POST', body: { participantName: 'Test Student' } });
+      assert.equal(res.status, 201);
+      attemptId = res.body.attemptId;
+      attemptToken = res.body.attemptToken;
+    });
+
+    test('submits and returns score', async () => {
+      const res = await call(api.base, `/api/take/attempts/${attemptId}/submit`, { method: 'POST', token: attemptToken, body: {} });
+      assert.equal(res.status, 200);
+      assert.ok(res.body.status);
+      assert.ok(typeof res.body.score === 'object');
+    });
+
+    test('locks attempt after submit', async () => {
+      await call(api.base, `/api/take/attempts/${attemptId}/submit`, { method: 'POST', token: attemptToken, body: {} });
+      const res = await call(api.base, `/api/take/attempts/${attemptId}/answers`, { method: 'PUT', token: attemptToken, body: { answers: {} } });
+      assert.equal(res.status, 409);
+      const res2 = await call(api.base, `/api/take/attempts/${attemptId}/submit`, { method: 'POST', token: attemptToken, body: {} });
+      assert.equal(res2.status, 409);
+    });
+  });
+});
