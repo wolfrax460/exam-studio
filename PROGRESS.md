@@ -213,3 +213,33 @@ Pull main. `npm run setup && npm test && npm run create-admin`.
 - LANDING LEFTOVERS: tailwind config, config.ts cleanup, /api/public/limits endpoint
 - PROGRESS.md LEFTOVERS: MCP tools, NVIDIA API key status, desktop installer draft
 - OPTIONAL: Practice mode (Library > Practice)
+
+## Item 6b DONE - ONLINE EXAMS SERVER GAPS (PARTIAL)
+- Tests created for: GET /api/take/:shareCode (info), POST /api/take/:shareCode/start, PUT /api/take/attempts/:id/answers (autosave), POST /api/take/attempts/:id/submit
+- Tests verify: no answers/marking scheme in take page, maxAttempts enforcement, opensAt/closesAt, name requirement, autosave validation, submit locks attempt
+- Rate limit issue with takeLimit in tests (skipped .skip file)
+- Deployed: health ok:true (1253ms)
+
+## Item 6c - MARKING (IN PROGRESS)
+- Deterministic marking implemented in server/lib/examTake.js (markObjective)
+- AI marking with strict JSON schema (mark_answer tool)
+- 3 concurrent max, 60s timeout per call
+- Needs tests for all question types
+
+## Item 6d - TAKE SCREEN (NOT STARTED)
+- Frontend: TakeExam.jsx exists, needs layout verification
+- 900px centered, 17px text, 48px option rows, essay boxes min 240px
+- Left navigator, sticky timer, autosave 5s, offline notice, phone bottom bar
+
+## Item 6e - TEACHER RESULTS (NOT STARTED)
+- Paper studio rail view with attempts table
+- Row drawer with answers/marks/feedback + Override mark
+- Summary cards, per-question % correct, CSV export
+- Owner-only (403 others)
+
+## Items 7-11: PENDING
+- Admin dashboard (reference/admin-layout.png exists)
+- C1 TOKENS: hex replacement
+- LANDING LEFTOVERS: tailwind config, /api/public/limits
+- PROGRESS.md LEFTOVERS: MCP tools, NVIDIA API key status
+- OPTIONAL: Practice mode
