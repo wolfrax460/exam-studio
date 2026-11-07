@@ -996,7 +996,8 @@ app.post('/mcp/public', wrap(async (req, res) => {  // Kill switch.
     // Record a generation after the call (success or failure) so the daily/burst counters advance.
     if (isGeneration) await publicRecordGeneration(ipHash);
     // best-effort session decrement; the transport's onsessionclosed is the real signal
-    setTimeout(() => publicSessionClose(ipHash), 1000);
+    // Best-effort bookkeeping must not keep the process alive (tests, or a server shutting down).
+    setTimeout(() => publicSessionClose(ipHash), 1000).unref();
   }
 }));
 

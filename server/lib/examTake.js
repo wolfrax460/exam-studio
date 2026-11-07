@@ -43,7 +43,9 @@ export function questionList(exam) {
   if (Array.isArray(exam?.sections)) {
     for (const section of exam.sections) {
       (section.items || []).forEach((item, index) => {
-        questions.push({ ...item, id: item.id || `${section.id || 'Q'}-${index + 1}`, marks: Number(item.marks) || Number(item.totalMarks) || Number(section.marksPerItem) || 1, sectionId: section.id, sectionTitle: section.title });
+        // In the sectioned layout the question kind lives on the section, so it has to travel
+        // with the flattened question: markObjective and the take API both dispatch on it.
+        questions.push({ ...item, id: item.id || `${section.id || 'Q'}-${index + 1}`, kind: section.kind || item.kind, marks: Number(item.marks) || Number(item.totalMarks) || Number(section.marksPerItem) || 1, sectionId: section.id, sectionTitle: section.title });
       });
     }
   } else {

@@ -28,6 +28,22 @@ describe('student exam serializer', () => {
   });
 });
 
+describe('sectioned question flattening', () => {
+  it('carries the section kind onto every flattened question', () => {
+    const sectioned = { sections: [
+      { id: 'A', kind: 'mcq', title: 'MCQ', marks: 2, marksPerItem: 1, items: [{ text: 'q', options: ['A', 'B', 'C', 'D'], answer: 'A' }] },
+      { id: 'B', kind: 'short_answer', title: 'SA', marks: 2, marksPerItem: 2, items: [{ text: 's', answer: 'x' }] },
+    ] };
+    const qs = questionList(sectioned);
+    assert.deepEqual(qs.map((q) => q.kind), ['mcq', 'short_answer']);
+    assert.deepEqual(qs.map((q) => q.sectionId), ['A', 'B']);
+    assert.deepEqual(qs.map((q) => q.marks), [1, 2]);
+    const score = markObjective(qs, { 'A-1': 'A' });
+    assert.equal(score.perQuestion.find((p) => p.questionId === 'A-1').awarded, 1);
+    assert.equal(score.perQuestion.find((p) => p.questionId === 'B-1').needsReview, true);
+  });
+});
+
 describe('objective marking', () => {
   it('marks mcq and true/false without AI', () => {
     const score = markObjective(questionList(exam), { 'A-1': 'B', 'A-2': 'True' });
