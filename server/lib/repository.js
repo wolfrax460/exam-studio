@@ -13,6 +13,11 @@ import mongoose from 'mongoose';
 import { connectToDatabase, isMongoReady } from './database.js';
 import User from './models/User.js';
 import LibraryItem from './models/LibraryItem.js';
+import Institution from './models/Institution.js';
+import Membership from './models/Membership.js';
+import Group from './models/Group.js';
+import GroupMember from './models/GroupMember.js';
+import Assignment from './models/Assignment.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +32,23 @@ let file = null;          // { version, users: [], items: [] }
 let fileLoaded = false;
 
 // ---------------------------------------------------------------- file backend
-const emptyFile = () => ({ version: 2, users: [], items: [], plans: [], usageEvents: [], announcements: [], auditLog: [], settings: [], aiConfig: null, tokens: [] });
+const emptyFile = () => ({
+  version: 2,
+  users: [],
+  items: [],
+  plans: [],
+  usageEvents: [],
+  announcements: [],
+  auditLog: [],
+  settings: [],
+  aiConfig: null,
+  tokens: [],
+  institutions: [],
+  memberships: [],
+  groups: [],
+  groupMembers: [],
+  assignments: [],
+});
 
 function readFileStore() {
   if (fileLoaded) return file;
@@ -50,6 +71,11 @@ function readFileStore() {
         settings: Array.isArray(raw.settings) ? raw.settings : [],
         aiConfig: raw.aiConfig && typeof raw.aiConfig === 'object' ? raw.aiConfig : null,
         tokens: Array.isArray(raw.tokens) ? raw.tokens : [],
+        institutions: Array.isArray(raw.institutions) ? raw.institutions : [],
+        memberships: Array.isArray(raw.memberships) ? raw.memberships : [],
+        groups: Array.isArray(raw.groups) ? raw.groups : [],
+        groupMembers: Array.isArray(raw.groupMembers) ? raw.groupMembers : [],
+        assignments: Array.isArray(raw.assignments) ? raw.assignments : [],
       };
     } else {
       file = emptyFile();
@@ -97,6 +123,11 @@ export async function initStorage() {
     try {
       await User.init();
       await LibraryItem.init();
+      await Institution.init();
+      await Membership.init();
+      await Group.init();
+      await GroupMember.init();
+      await Assignment.init();
     } catch (error) {
       console.warn(`Storage: could not prepare MongoDB indexes (${error.message}).`);
     }
