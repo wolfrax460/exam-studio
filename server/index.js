@@ -12,7 +12,7 @@ import rateLimit from 'express-rate-limit';
 import { httpError } from './lib/errors.js';
 import { extractText } from './lib/extract.js';
 import { scanNotes, loadNote } from './lib/notesLib.js';
-import { generateNotes, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS, detectStructure } from './lib/ai.js';
+import { generateNotes, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS, detectStructure, suggestOutcomeTitles } from './lib/ai.js';
 import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
@@ -40,7 +40,7 @@ import { launchInfo, snippets } from './lib/agents.js';
 import { createMcpServer, PUBLIC_INPUT_MAX_CHARS } from './lib/mcpServer.js';
 import ExamPublication from './lib/models/ExamPublication.js';
 import ExamAttempt from './lib/models/ExamAttempt.js';
-import { studentExam, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective, aiMarkAnswer } from './lib/examTake.js';
+import { studentQuestion, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective, aiMarkAnswer } from './lib/examTake.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
@@ -559,6 +559,8 @@ app.get('/api/health', optionalAuthenticateUser, wrap(async (req, res) => {
   const isDefaultAI = info.id === 'nvidia';
   res.json({
     ok: true,
+    status: 'ok',
+    service: 'exam-studio-api',
     version: VERSION,
     demo: info.demo,
     provider: isDefaultAI ? 'Exam Studio AI' : info.provider,
@@ -1264,6 +1266,21 @@ app.post('/api/notes/detect-structure', wrap(async (req, res) => {
   }
   res.json({ structure, message: 'Structure detected successfully.' });
 }));
+// ---------------------------------------------------------------- suggest outcomes
+// The module creator runs the shared heuristic in the browser first and only calls this when the
+// notes have no marked outcomes, so the model sees at most 8k characters.
+app.post('/api/modules/suggest-outcomes', generateLimit, optionalAuthenticateUser, wrap(async (req, res) => {
+  const text = String(req.body?.text ?? '').slice(0, 8000);
+  if (text.trim().length < 50) throw httpError(400, 'Pick or paste at least a few lines of notes first.');
+  let outcomes;
+  try {
+    outcomes = await suggestOutcomeTitles({ text, title: s(req.body?.title, 120) });
+  } catch (error) {
+    throw httpError(502, `Could not suggest outcomes: ${error.message}`);
+  }
+  if (!outcomes.length) throw httpError(502, 'The model returned no outcomes. Type them in below.');
+  res.json({ outcomes });
+}));
 // ---------------------------------------------------------------- generate
 app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const text = notesFrom(req.body);
@@ -1579,11 +1596,24 @@ async function finalizeAttempt(attempt) {
 // Deadline auto-submit: a closed tab must not leave an exam open forever.
 setInterval(async () => {
   try {
-    const due = await ExamAttempt.find({ status: 'in_progress', deadlineAt: { $lt: new Date(Date.now() - 10_000) } }).limit(20);
+    const due = await ExamAttempt.find({ status: 'in_progress', deadlineAt: { $lt: new Date(Date.now() - ATTEMPT_GRACE_MS) } }).limit(20);
     for (const attempt of due) await finalizeAttempt(attempt);
   } catch { /* a background sweep must never crash the server */ }
 }, 60_000).unref();
 // ---------------------------------------------------------------- online exams
+// One grace period for the whole attempt lifecycle: autosave, the deadline sweep and final submit all
+// use it, so a student can never be allowed to submit later than they could save.
+const ATTEMPT_GRACE_MS = 10_000;
+
+// A withdrawn exam stops serving outstanding attempt tokens. A publication that has merely passed
+// its closesAt is still active: the scheduled closing time is a result-visibility policy, not a
+// revocation, so the two must never be treated the same way.
+async function requireActivePublication(attempt) {
+  const pub = await ExamPublication.findById(attempt.publicationId).lean();
+  if (!pub || pub.active === false) throw httpError(403, 'This exam has been withdrawn by its owner.');
+  return pub;
+}
+
 const takeLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: Number(process.env.TAKE_LIMIT_PER_HOUR) || 60,
@@ -1697,7 +1727,7 @@ app.post('/api/take/:shareCode/start', takeLimit, wrap(async (req, res) => {
   const deadlineAt = new Date(startedAt.getTime() + pub.durationMinutes * 60 * 1000);
   const attempt = await ExamAttempt.create({ publicationId: pub._id, examId: pub.examId, ownerId: pub.ownerId, participantName: name, ipHash, seed: crypto.randomBytes(6).toString('hex'), startedAt, deadlineAt });
   const token = signAttemptToken({ attemptId: String(attempt._id), publicationId: String(pub._id) });
-  const questions = questionList(item.data).map((q) => studentExam(q));
+  const questions = questionList(item.data).map((q) => studentQuestion(q));
   res.status(201).json({ attemptId: String(attempt._id), attemptToken: token, deadlineAt, startedAt, exam: { title: pub.title, instructions: pub.instructions, durationMinutes: pub.durationMinutes, showResultsMode: pub.showResultsMode }, questions });
 }));
 
@@ -1706,8 +1736,9 @@ app.put('/api/take/attempts/:id/answers', takeLimit, wrap(async (req, res) => {
   if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
   const attempt = await ExamAttempt.findById(req.params.id);
   if (!attempt) throw httpError(404, 'Attempt not found.');
+  await requireActivePublication(attempt);
   if (attempt.status !== 'in_progress') throw httpError(409, 'This attempt is already submitted.');
-  if (Date.now() > attempt.deadlineAt.getTime() + 10_000) throw httpError(410, 'The deadline has passed.');
+  if (Date.now() > attempt.deadlineAt.getTime() + ATTEMPT_GRACE_MS) throw httpError(410, 'The deadline has passed.');
   const answers = req.body?.answers;
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw httpError(400, 'Answers must be an object.');
   const merged = { ...(attempt.answers || {}) };
@@ -1726,6 +1757,13 @@ app.post('/api/take/attempts/:id/submit', takeLimit, wrap(async (req, res) => {
   if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
   const attempt = await ExamAttempt.findById(req.params.id);
   if (!attempt) throw httpError(404, 'Attempt not found.');
+  await requireActivePublication(attempt);
+  // The deadline is decided from the server clock and the attempt record only; the request body
+  // carries nothing that can move it. An attempt already finalized keeps the existing idempotent
+  // reply below, so this check applies only while it is still open.
+  if (attempt.status === 'in_progress' && Date.now() > attempt.deadlineAt.getTime() + ATTEMPT_GRACE_MS) {
+    throw httpError(410, 'The deadline has passed. Answers saved before the deadline are submitted automatically.');
+  }
   const finalized = await finalizeAttempt(attempt);
   res.json({ ok: true, status: finalized.status, score: finalized.score });
 }));
@@ -1735,9 +1773,23 @@ app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
   if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
   const attempt = await ExamAttempt.findById(req.params.id).lean();
   if (!attempt) throw httpError(404, 'Attempt not found.');
-  const pub = await ExamPublication.findById(attempt.publicationId).lean();
-  const visible = pub?.showResultsMode === 'immediately' || (pub?.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
-  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: visible ? attempt.score : null, feedback: visible ? attempt.feedback : [], markingProgress: attempt.markingProgress || null, resultsVisible: visible });
+  const pub = await requireActivePublication(attempt);
+  const visible = pub.showResultsMode === 'immediately' || (pub.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
+  // A student receives the mark and the comment, never the marking scheme itself: pointsHit and
+  // pointsMissed name the marking points and stay with the owner.
+  const studentFeedback = visible
+    ? (attempt.feedback || []).map(({ questionId, awarded, max, feedback, needsReview }) => ({ questionId, awarded, max, feedback, needsReview }))
+    : [];
+  // overrideComment is the teacher's own note on a manually adjusted mark. It stays on the teacher
+  // routes and never travels in a student response.
+  const studentScore = visible && attempt.score
+    ? {
+        total: attempt.score.total,
+        max: attempt.score.max,
+        perQuestion: (attempt.score.perQuestion || []).map(({ questionId, awarded, max, needsReview }) => ({ questionId, awarded, max, needsReview })),
+      }
+    : null;
+  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: studentScore, feedback: studentFeedback, markingProgress: attempt.markingProgress || null, resultsVisible: visible });
 }));
 
 app.get('/api/exams/:id/attempts', wrap(async (req, res) => {

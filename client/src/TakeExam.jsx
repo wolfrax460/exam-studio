@@ -86,7 +86,9 @@ export default function TakeExam({ shareCode }) {
   const pollResult = async () => {
     for (let i = 0; i < 40; i++) {
       try {
-        const r = await api(`/api/take/attempts/${attemptId}/result?attemptToken=${encodeURIComponent(token)}`);
+        // The attempt token is a bearer credential: it goes in a header, never in the URL, so it
+        // cannot end up in browser history, a Referer header or a server access log.
+        const r = await api(`/api/take/attempts/${attemptId}/result`, { headers: { 'x-attempt-token': token } });
         setResult(r);
         if (r.status === 'marked' || r.status === 'marking_failed') return;
       } catch {}

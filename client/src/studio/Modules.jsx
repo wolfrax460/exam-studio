@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { typeLabel } from './engine.js';
 import SourcePicker from '../SourcePicker.jsx';
 import { createModuleId, createQuestionId } from './store.js';
+import { post } from '../api.js';
+import { suggestOutcomes } from '../../../shared/outcomes.js';
 
 export default function Modules({
   modules,
@@ -93,23 +95,45 @@ export default function Modules({
   );
 }
 
-// Notes arrive as prose, but a module needs one short outcome per line. Take the sentences that
-// read like outcomes, then let the teacher edit them in the box below.
-function outcomesFrom(text) {
-  return String(text || '')
-    .split(/[\n.]+/)
-    .map((line) => line.trim().replace(/\s+/g, ' '))
-    .filter((line) => line.length >= 12 && line.length <= 120)
-    .slice(0, 8)
-    .join('\n');
-}
-
 function CreateModule({ modules, onCreate }) {
   const [code, setCode] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [lines, setLines] = useState('');
   const [error, setError] = useState('');
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState('');
+
+  // The box fills from the shared heuristic first, which costs nothing. Only when the notes carry no
+  // marked outcomes and no usable sentences does this spend one short AI call on the first 8k
+  // characters, and the teacher can always overwrite what lands here.
+  const fillOutcomes = async (text) => {
+    const picked = suggestOutcomes(text);
+    if (picked.length > 0) {
+      setLines(picked.join('\n'));
+      setSuggestError('');
+      return;
+    }
+    if (!String(text || '').trim()) {
+      setLines('');
+      setSuggestError('');
+      return;
+    }
+    setSuggesting(true);
+    setSuggestError('');
+    try {
+      const { outcomes } = await post('/modules/suggest-outcomes', { text: String(text).slice(0, 8000), title: title.trim() });
+      if (!outcomes || outcomes.length === 0) {
+        setSuggestError('No outcomes were found in these notes. Type them in below.');
+      } else {
+        setLines(outcomes.join('\n'));
+      }
+    } catch (err) {
+      setSuggestError(err.message || 'Could not suggest outcomes. Type them in below.');
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const submit = (event) => {
     event.preventDefault();
@@ -167,9 +191,11 @@ function CreateModule({ modules, onCreate }) {
         <div className="esx-field esx-field-wide">
           <details>
             <summary>Start from your notes</summary>
-            <SourcePicker onText={(next) => setLines(outcomesFrom(next))} />
+            <SourcePicker onText={fillOutcomes} />
           </details>
           <span className="esx-hint">Pick a file or paste text and the likely outcomes are filled in below. Edit them before creating the module.</span>
+          {suggesting && <span className="esx-hint">Suggesting outcomes…</span>}
+          {suggestError && <p className="esx-form-error" role="alert">{suggestError}</p>}
         </div>
 
         <label className="esx-field esx-field-wide">

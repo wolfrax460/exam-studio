@@ -21,21 +21,41 @@ export function verifyAttemptToken(token) {
   } catch { return null; }
 }
 
-const HIDDEN = new Set(['answer', 'correct', 'markingPoints', 'modelAnswer', 'notes', 'explanation', 'explanations', 'solution', 'code']);
+// Only these fields ever reach a student. This is an allowlist on purpose: the previous version
+// removed a fixed list of secret names, so an answer kept under any other name (correctAnswer,
+// expected, rubric, aiPrompt) would have been sent verbatim. An allowlist fails closed instead.
+const STUDENT_QUESTION_KEYS = ['id', 'text', 'prompt', 'title', 'type', 'kind', 'marks', 'totalMarks', 'instructions', 'sectionId', 'sectionTitle'];
+const STUDENT_NESTED_KEYS = ['id', 'letter', 'text', 'prompt', 'title', 'marks', 'totalMarks', 'instructions'];
 
-function clean(value) {
-  if (Array.isArray(value)) return value.map(clean);
-  if (!value || typeof value !== 'object') return value;
+function pick(source, keys) {
   const out = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (HIDDEN.has(key)) continue;
-    out[key] = clean(item);
-  }
+  if (!source || typeof source !== 'object') return out;
+  for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+  if (Array.isArray(source.options)) out.options = source.options.filter((option) => typeof option === 'string');
   return out;
 }
 
+export function studentQuestion(question) {
+  const out = pick(question, STUDENT_QUESTION_KEYS);
+  if (Array.isArray(question?.parts)) out.parts = question.parts.map((part) => pick(part, STUDENT_NESTED_KEYS));
+  if (Array.isArray(question?.items)) out.items = question.items.map((item) => pick(item, STUDENT_NESTED_KEYS));
+  return out;
+}
+
+// Exam-level wrapper, kept for any caller holding a whole paper rather than one question.
 export function studentExam(exam) {
-  return clean(exam || {});
+  if (!exam || typeof exam !== 'object') return {};
+  const out = {};
+  for (const key of ['title', 'instructions']) if (exam[key] !== undefined) out[key] = exam[key];
+  if (Array.isArray(exam.sections)) {
+    out.sections = exam.sections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      items: (section.items || []).map(studentQuestion),
+    }));
+  }
+  if (Array.isArray(exam.questions)) out.questions = exam.questions.map(studentQuestion);
+  return out;
 }
 
 export function questionList(exam) {

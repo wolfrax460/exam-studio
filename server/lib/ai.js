@@ -375,6 +375,50 @@ const wrapNotes = (text) => `<notes>\n${text}\n</notes>`;
 // ---------------------------------------------------------------- generate
 // In demo mode every generator returns the fixed sample in lib/demo.js. The result is marked
 // `demo: true` so the app can say so on screen instead of looking like it ignored your notes.
+// A deliberately small call: the module creator only needs a handful of short outcome lines, so the
+// prompt is the first 8k characters and the response is capped. Used only when the shared heuristic
+// in shared/outcomes.js found nothing.
+const outcomesTool = {
+  name: 'learning_outcomes',
+  description: 'The learning outcomes the supplied notes cover.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      outcomes: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['outcomes'],
+  },
+};
+
+const DEMO_OUTCOMES = [
+  'Design and normalise a relational database schema',
+  'Install and configure a database server',
+  'Back up and restore a database',
+  'Explain how indexes affect query performance',
+];
+
+export async function suggestOutcomeTitles({ text, title }) {
+  const sample = String(text || '').slice(0, 8000);
+  if (!sample.trim()) return [];
+  if (DEMO) return [...DEMO_OUTCOMES];
+
+  await ensureReady();
+  const result = await callStructured({
+    tool: outcomesTool,
+    maxTokens: 700,
+    system:
+      `You turn course notes into learning outcomes for TVET students.
+
+Return 3 to 8 outcomes. Each one is a single sentence of at most 14 words that starts with a verb (explain, describe, design, install, configure, apply, evaluate). Cover only what the notes actually teach. Do not number them, do not add introductory text.`,
+    user: `${title ? `Module: ${title}\n` : ''}Write the learning outcomes for these notes.\n\n${wrapNotes(sample)}`,
+  });
+
+  return (result.outcomes || [])
+    .map((line) => String(line).trim().replace(/^\d+[.)]\s*/, ''))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
 export async function generateNotes({ text, title, focus }) {
   if (DEMO) return { ...demoNotes(), demo: true };
   await ensureReady();

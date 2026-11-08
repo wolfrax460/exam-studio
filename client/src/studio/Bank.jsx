@@ -154,11 +154,17 @@ export default function Bank({ module, outcomes, onManage }) {
       })}
 
       {filtered.length === 0 && (
-        <p className="esx-empty">
-          {module.questions.length === 0
-            ? 'This module has no questions yet. Add some under Modules, or generate an exam and import it.'
-            : 'No questions match these filters.'}
-        </p>
+        <section className="esx-empty">
+          <h2>Your Question bank is empty</h2>
+          <p>
+            Saved questions will appear here. Add the first one with <strong>Add or edit
+            questions</strong> in the left-hand menu, or create a module under
+            <strong>Modules</strong> and type your own.
+          </p>
+          <button type="button" className="esx-btn esx-btn-ghost esx-btn-sm" onClick={() => onManage()}>
+            Open Modules
+          </button>
+        </section>
       )}
     </div>
   );
