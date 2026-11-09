@@ -94,7 +94,7 @@ export default function SourcePicker({
   return (
     <div className="source-picker">
       <div className="segmented source-picker-tabs" role="tablist" aria-label="Where the notes come from">
-        <button type="button" role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}>Upload from computer</button>
+        <button type="button" role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}>Upload file</button>
         <button type="button" role="tab" aria-selected={mode === 'paste'} className={mode === 'paste' ? 'on' : ''} onClick={() => setMode('paste')}>Paste text</button>
         <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'on' : ''} onClick={() => setMode('library')}>Notes library</button>
       </div>

@@ -7,6 +7,7 @@ import './styles.css';
 import './theme/paper-ui.css';
 import './theme/shell.css';
 import './styles/tokens.css';
+import './theme/workspace.css';
 
 const root = createRoot(document.getElementById('root'));
 
