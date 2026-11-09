@@ -1,10 +1,11 @@
 {
   "name": "exam-studio",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "Turn course notes into study handouts, notes, flashcards and exams.",
   "author": "Exam Studio",
+  "homepage": "https://exams-studio.vercel.app/",
   "main": "electron/main.js",
   "scripts": {
     "setup": "npm --prefix server install && npm --prefix client install",
@@ -18,7 +19,7 @@
     "desktop": "npm run build && electron .",
     "desktop:pack": "npm run build && electron-builder --dir -c.electronDist=node_modules/electron/dist",
     "dist": "npm run build && electron-builder -c.electronDist=node_modules/electron/dist",
-    "dist:win": "npm run build && electron-builder --win -c.electronDist=node_modules/electron/dist",
+    "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:linux:zip": "npm run build && electron-builder --linux zip",
@@ -42,6 +43,8 @@
       "!server/samples/**",
       "!server/test/**",
       "!server/scripts/**",
+      "!**/.env*",
+      "!**/*.{pem,key}",
       "!**/*.log"
     ],
     "asarUnpack": [
@@ -63,7 +66,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png"
+      "icon": "client/src/assets/exam-studio-mark.svg"
     },
     "nsis": {
       "oneClick": false,
@@ -82,17 +85,20 @@
         "dmg"
       ],
       "category": "public.app-category.education",
-      "icon": "build/icon.png",
-      "artifactName": "Exam-Studio-${version}.${ext}"
+      "icon": "client/src/assets/exam-studio-mark.svg",
+      "minimumSystemVersion": "13.0.0",
+      "artifactName": "Exam-Studio-${version}-mac-${arch}.${ext}"
     },
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "zip"
       ],
       "category": "Education",
-      "icon": "build/icon.png",
-      "artifactName": "Exam-Studio-${version}.${ext}"
+      "icon": "client/src/assets/exam-studio-mark.svg",
+      "maintainer": "Exam Studio <wolfras87@gmail.com>",
+      "artifactName": "Exam-Studio-${version}-linux-${arch}.${ext}"
     }
   },
   "devDependencies": {
