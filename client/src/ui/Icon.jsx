@@ -31,6 +31,14 @@ const PATHS = {
   print: <><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="2" /><path d="M7 17v4h10v-4M8 13h.01M12 13h4" /></>,
   save: <><path d="M5 3h12l2 2v16H5V3Z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></>,
   arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
+  user: <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2" /></>,
+  institution: <><path d="m3 9 9-5 9 5H3ZM5 20h14M7 11v6m5-6v6m5-6v6" /></>,
+  dashboard: <><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="14" y="3" width="7" height="8" rx="1.5" /><rect x="3" y="14" width="8" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+  activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
+  chart: <path d="M4 3v17h17M9 15v-3m5 3V8m5 7V5" />,
+  bell: <><path d="M5 17h14l-2-3V9a5 5 0 1 0-10 0v5l-2 3ZM10 21h4" /></>,
+  database: <><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
 };
 
 export default function Icon({ name, size = 18, className = '', title }) {

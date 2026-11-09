@@ -595,6 +595,13 @@ const registerLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many accounts created from this address. Try again later.' },
 });
+const recoveryLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password recovery requests. Please wait 15 minutes and try again.' },
+});
 
 const isDuplicateKey = (error) => error?.code === 11000 || error?.code === 11001 || /duplicate key/i.test(String(error?.message || ''));
 
@@ -638,6 +645,7 @@ app.post('/api/auth/login', loginLimit, wrap(async (req, res) => {
   }
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw httpError(401, 'Email or password is not correct.');
+  if (user.active === false) throw httpError(403, 'This account is disabled. Contact your administrator.');
 
   if (user.totpEnabled) {
     const code = String(req.body?.totpCode || '').trim();
@@ -687,7 +695,8 @@ app.get('/api/auth/verify-email', wrap(async (req, res) => {
   res.json({ message: 'Email verified. You can now sign in.', user: publicUser(user) });
 }));
 
-app.post('/api/auth/forgot-password', wrap(async (req, res) => {
+app.post('/api/auth/forgot-password', recoveryLimit, wrap(async (req, res) => {
+  if (storageMode() !== 'mongo') throw httpError(503, 'Email password recovery is unavailable for this workspace.');
   const email = normalizeEmail(text(req.body?.email, { field: 'Email', min: 3, max: 254 }));
   const user = await User.findOne({ email });
   if (user) {
@@ -701,20 +710,25 @@ app.post('/api/auth/forgot-password', wrap(async (req, res) => {
   res.json({ message: 'If an account exists for that email, password reset instructions have been sent.' });
 }));
 
-app.post('/api/auth/reset-password', wrap(async (req, res) => {
+app.post('/api/auth/reset-password', recoveryLimit, wrap(async (req, res) => {
+  if (storageMode() !== 'mongo') throw httpError(503, 'Email password recovery is unavailable for this workspace.');
   const token = String(req.body?.token || '');
   const password = req.body?.password;
-  if (!token) throw httpError(400, 'Reset token is required.');
+  if (!/^[a-f0-9]{64}$/.test(token)) throw httpError(400, 'Reset link is invalid or expired.');
   if (typeof password !== 'string' || !password) throw httpError(400, 'A new password is required.');
   const passwordProblem = validatePassword(password);
   if (passwordProblem) throw httpError(400, passwordProblem);
   const hashed = crypto.createHash('sha256').update(token).digest('hex');
-  const user = await User.findOne({ passwordResetTokenHash: hashed, passwordResetExpires: { $gt: new Date() } });
+  const passwordHash = await hashPassword(password);
+  const user = await User.findOneAndUpdate(
+    { passwordResetTokenHash: hashed, passwordResetExpires: { $gt: new Date() } },
+    {
+      $set: { passwordHash },
+      $unset: { passwordResetTokenHash: 1, passwordResetExpires: 1 },
+      $inc: { tokenVersion: 1 },
+    },
+  );
   if (!user) throw httpError(400, 'Reset link is invalid or expired.');
-  user.passwordHash = password;
-  user.passwordResetTokenHash = undefined;
-  user.passwordResetExpires = undefined;
-  await user.save();
   res.json({ message: 'Password reset successfully. You can now sign in.' });
 }));
 const OPENAPI_SPEC = {
