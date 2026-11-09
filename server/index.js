@@ -1725,7 +1725,7 @@ app.post('/api/take/:shareCode/start', takeLimit, wrap(async (req, res) => {
   if (pub.maxAttemptsPerDay > 0 && daily >= pub.maxAttemptsPerDay) throw httpError(429, 'This exam has reached its daily attempt limit.');
   const startedAt = new Date();
   const deadlineAt = new Date(startedAt.getTime() + pub.durationMinutes * 60 * 1000);
-  const attempt = await ExamAttempt.create({ publicationId: pub._id, examId: pub.examId, ownerId: pub.ownerId, participantName: name, ipHash, seed: crypto.randomBytes(6).toString('hex'), startedAt, deadlineAt });
+  const attempt = await ExamAttempt.create({ publicationId: pub._id, examId: pub.examId, ownerId: pub.ownerId, ownerType: pub.ownerType || 'personal', institutionId: pub.institutionId || null, participantName: name, ipHash, seed: crypto.randomBytes(6).toString('hex'), startedAt, deadlineAt });
   const token = signAttemptToken({ attemptId: String(attempt._id), publicationId: String(pub._id) });
   const questions = questionList(item.data).map((q) => studentQuestion(q));
   res.status(201).json({ attemptId: String(attempt._id), attemptToken: token, deadlineAt, startedAt, exam: { title: pub.title, instructions: pub.instructions, durationMinutes: pub.durationMinutes, showResultsMode: pub.showResultsMode }, questions });

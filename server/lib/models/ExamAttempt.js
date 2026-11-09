@@ -1,9 +1,11 @@
 import mongoose from 'mongoose';
+import { ownershipSchemaFields } from '../ownership.js';
 
 const schema = new mongoose.Schema({
   publicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExamPublication', required: true, index: true },
   examId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   ownerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  ...ownershipSchemaFields,
   userId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   participantName: { type: String, default: '', maxlength: 120 },
   ipHash: { type: String, default: '', index: false },
@@ -20,4 +22,5 @@ const schema = new mongoose.Schema({
 }, { timestamps: true });
 
 schema.index({ publicationId: 1, createdAt: -1 });
+schema.index({ ownerType: 1, institutionId: 1, publicationId: 1 });
 export default mongoose.models.ExamAttempt || mongoose.model('ExamAttempt', schema);

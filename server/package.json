@@ -10,7 +10,8 @@
     "test": "node --test test/",
     "live-check": "node scripts/live-check.mjs",
     "render-samples": "node scripts/render-samples.mjs",
-    "create-admin": "node scripts/create-admin.mjs"
+    "create-admin": "node scripts/create-admin.mjs",
+    "migrate:ownership": "node scripts/migrate-ownership.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",

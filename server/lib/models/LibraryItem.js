@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { ownershipSchemaFields } from '../ownership.js';
 
 const libraryItemSchema = new mongoose.Schema({
   userId: {
@@ -7,6 +8,7 @@ const libraryItemSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  ...ownershipSchemaFields,
   kind: {
     type: String,
     required: true,
@@ -28,9 +30,11 @@ const libraryItemSchema = new mongoose.Schema({
   },
 });
 
-// Compound index for user-specific queries
+// Compound index for user-specific queries and later workspace ownership queries.
 libraryItemSchema.index({ userId: 1, createdAt: -1 });
 libraryItemSchema.index({ userId: 1, kind: 1 });
+libraryItemSchema.index({ ownerType: 1, institutionId: 1, createdAt: -1 });
+libraryItemSchema.index({ ownerType: 1, institutionId: 1, kind: 1 });
 
 const LibraryItem = mongoose.model('LibraryItem', libraryItemSchema);
 export default LibraryItem;

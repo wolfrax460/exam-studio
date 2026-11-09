@@ -18,6 +18,7 @@ import Membership from './models/Membership.js';
 import Group from './models/Group.js';
 import GroupMember from './models/GroupMember.js';
 import Assignment from './models/Assignment.js';
+import { normalizeOwnershipInput, ownershipView, isPersonalOwnership, personalOwnershipQuery } from './ownership.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,6 +113,28 @@ const ownerObjectId = (owner) => new mongoose.Types.ObjectId(
 );
 const toOwnerId = (userId) => (mongoose.isValidObjectId(userId) ? userId : ownerObjectId(String(userId)));
 const asIso = (value) => (value instanceof Date ? value.toISOString() : new Date(value || Date.now()).toISOString());
+
+const itemView = (item) => {
+  const ownership = ownershipView(item);
+  return {
+    id: String(item._id ?? item.id),
+    kind: item.kind,
+    title: item.title,
+    createdAt: asIso(item.createdAt),
+    ...(item.data === undefined ? {} : { data: item.data }),
+    ownerType: ownership.ownerType,
+    institutionId: ownership.institutionId,
+  };
+};
+
+const institutionObjectId = (institutionId) => {
+  if (!mongoose.isValidObjectId(institutionId)) {
+    const error = new Error('institutionId must be a valid id');
+    error.status = 400;
+    throw error;
+  }
+  return new mongoose.Types.ObjectId(String(institutionId));
+};
 
 // ---------------------------------------------------------------- init
 export async function initStorage() {
@@ -246,50 +269,101 @@ export async function findUserById(id) {
 export async function listItems(userId) {
   await initStorage();
   if (mode === 'mongo') {
-    const items = await LibraryItem.find({ userId: toOwnerId(userId) }).sort({ createdAt: -1 }).select('kind title createdAt').lean();
-    return items.map((it) => ({ id: it._id.toString(), kind: it.kind, title: it.title, createdAt: asIso(it.createdAt) }));
+    const items = await LibraryItem.find({ userId: toOwnerId(userId), ...personalOwnershipQuery() }).sort({ createdAt: -1 }).select('kind title createdAt ownerType institutionId').lean();
+    return items.map(itemView);
   }
   return readFileStore().items
-    .filter((it) => it.userId === userId)
+    .filter((it) => it.userId === userId && isPersonalOwnership(it))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-    .map((it) => ({ id: it.id, kind: it.kind, title: it.title, createdAt: it.createdAt }));
+    .map(itemView);
 }
 
 export async function getItem(id, userId) {
   await initStorage();
   if (mode === 'mongo') {
     if (!mongoose.isValidObjectId(id)) return null; // a malformed id is "not found", never a crash
-    const item = await LibraryItem.findOne({ _id: id, userId: toOwnerId(userId) }).lean();
+    const item = await LibraryItem.findOne({ _id: id, userId: toOwnerId(userId), ...personalOwnershipQuery() }).lean();
     if (!item) return null;
-    return { id: item._id.toString(), kind: item.kind, title: item.title, data: item.data, createdAt: asIso(item.createdAt) };
+    return itemView(item);
   }
-  const item = readFileStore().items.find((it) => it.id === id && it.userId === userId);
-  return item ? { id: item.id, kind: item.kind, title: item.title, data: item.data, createdAt: item.createdAt } : null;
+  const item = readFileStore().items.find((it) => it.id === id && it.userId === userId && isPersonalOwnership(it));
+  return item ? itemView(item) : null;
 }
 
-export async function saveItem({ kind, title, data, userId }) {
+export async function listItemsForInstitution(institutionId) {
   await initStorage();
+  const ownership = normalizeOwnershipInput({ ownerType: 'institution', institutionId });
   if (mode === 'mongo') {
-    const doc = await LibraryItem.create({ userId: toOwnerId(userId), kind, title, data });
-    return { id: doc._id.toString(), kind: doc.kind, title: doc.title, createdAt: asIso(doc.createdAt) };
+    const items = await LibraryItem.find({
+      ownerType: 'institution',
+      institutionId: institutionObjectId(ownership.institutionId),
+    }).sort({ createdAt: -1 }).select('kind title createdAt ownerType institutionId').lean();
+    return items.map(itemView);
+  }
+  return readFileStore().items
+    .filter((it) => it.ownerType === 'institution' && it.institutionId === ownership.institutionId)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .map(itemView);
+}
+
+export async function getItemForInstitution(id, institutionId) {
+  await initStorage();
+  const ownership = normalizeOwnershipInput({ ownerType: 'institution', institutionId });
+  if (mode === 'mongo') {
+    if (!mongoose.isValidObjectId(id)) return null;
+    const item = await LibraryItem.findOne({
+      _id: id,
+      ownerType: 'institution',
+      institutionId: institutionObjectId(ownership.institutionId),
+    }).lean();
+    return item ? itemView(item) : null;
+  }
+  const item = readFileStore().items.find(
+    (it) => it.id === id && it.ownerType === 'institution' && it.institutionId === ownership.institutionId,
+  );
+  return item ? itemView(item) : null;
+}
+
+export async function saveItem({ kind, title, data, userId, ownerType, institutionId }) {
+  await initStorage();
+  const ownership = normalizeOwnershipInput({ ownerType, institutionId });
+  if (mode === 'mongo') {
+    const doc = await LibraryItem.create({
+      userId: toOwnerId(userId),
+      kind,
+      title,
+      data,
+      ownerType: ownership.ownerType,
+      institutionId: ownership.ownerType === 'institution' ? institutionObjectId(ownership.institutionId) : null,
+    });
+    return itemView(doc);
   }
   const store = readFileStore();
-  const item = { id: newId(), userId, kind, title, data, createdAt: nowIso() };
+  const item = {
+    id: newId(),
+    userId,
+    kind,
+    title,
+    data,
+    createdAt: nowIso(),
+    ownerType: ownership.ownerType,
+    institutionId: ownership.institutionId,
+  };
   store.items.push(item);
   writeFileStore();
-  return { id: item.id, kind: item.kind, title: item.title, createdAt: item.createdAt };
+  return itemView(item);
 }
 
 export async function deleteItem(id, userId) {
   await initStorage();
   if (mode === 'mongo') {
     if (!mongoose.isValidObjectId(id)) return false;
-    const result = await LibraryItem.deleteOne({ _id: id, userId: toOwnerId(userId) });
+    const result = await LibraryItem.deleteOne({ _id: id, userId: toOwnerId(userId), ...personalOwnershipQuery() });
     return result.deletedCount > 0;
   }
   const store = readFileStore();
   const before = store.items.length;
-  store.items = store.items.filter((it) => !(it.id === id && it.userId === userId));
+  store.items = store.items.filter((it) => !(it.id === id && it.userId === userId && isPersonalOwnership(it)));
   if (store.items.length === before) return false;
   writeFileStore();
   return true;
@@ -309,5 +383,5 @@ export { User, LibraryItem };
 export default {
   initStorage, storageMode, storageStatus, resolveOwnerId, firstUserId, countUsers,
   createUser, findUserByEmail, findUserById,
-  listItems, getItem, saveItem, deleteItem, LOCAL_OWNER,
+  listItems, getItem, listItemsForInstitution, getItemForInstitution, saveItem, deleteItem, LOCAL_OWNER,
 };
