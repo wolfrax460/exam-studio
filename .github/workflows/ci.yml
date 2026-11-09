@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    # MongoDB 8.0 cannot start on the 6.19 kernel used by the Ubuntu 24.04 runner.
+    runs-on: ubuntu-22.04
     services:
       mongo:
         image: mongo:8.0
