@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { uploadFile } from './api.js';
+import Icon from './ui/Icon.jsx';
 
 const MAX_BYTES = 15 * 1024 * 1024;
 const ACCEPT = '.pdf,.docx,.txt,.md';
@@ -94,9 +95,9 @@ export default function SourcePicker({
   return (
     <div className="source-picker">
       <div className="segmented source-picker-tabs" role="tablist" aria-label="Where the notes come from">
-        <button type="button" role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}>Upload file</button>
-        <button type="button" role="tab" aria-selected={mode === 'paste'} className={mode === 'paste' ? 'on' : ''} onClick={() => setMode('paste')}>Paste text</button>
-        <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'on' : ''} onClick={() => setMode('library')}>Notes library</button>
+        <button type="button" role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}><Icon name="upload" size={16} /> Upload file</button>
+        <button type="button" role="tab" aria-selected={mode === 'paste'} className={mode === 'paste' ? 'on' : ''} onClick={() => setMode('paste')}><Icon name="clipboard" size={16} /> Paste text</button>
+        <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'on' : ''} onClick={() => setMode('library')}><Icon name="book" size={16} /> Library</button>
       </div>
 
       {mode === 'upload' && (
@@ -115,10 +116,12 @@ export default function SourcePicker({
               accept={ACCEPT}
               onChange={(event) => { accept(event.target.files); event.target.value = ''; }}
             />
-            <button type="button" onClick={() => input.current.click()} disabled={busy}>
-              {busy ? 'Reading files…' : 'Choose files'}
-            </button>
-            <span className="hint">or drop them here — PDF, Word, .txt or .md, up to 15 MB each</span>
+            <Icon name="upload" size={30} className="drop-icon" />
+            <strong>Drag and drop your files here</strong>
+            <span>or <button type="button" className="link" onClick={() => input.current.click()} disabled={busy}>
+              {busy ? 'Reading files…' : 'click to browse'}
+            </button></span>
+            <span className="hint">PDF, DOCX, TXT or MD · up to 15 MB per file</span>
           </div>
 
           {files.length > 0 && (
@@ -136,6 +139,10 @@ export default function SourcePicker({
               ))}
             </ul>
           )}
+          <div className="source-choice"><span>or</span></div>
+          <button type="button" className="source-paste-shortcut" onClick={() => setMode('paste')}>
+            <Icon name="document" size={18} /> Paste your notes or topic here…
+          </button>
         </>
       )}
 
@@ -173,7 +180,7 @@ export default function SourcePicker({
         </div>
       )}
 
-      <p className="hint">{value.length.toLocaleString()} characters{value.length > 0 && value.trim().length < 50 ? ' (add a little more)' : ''}</p>
+      {value.length > 0 && <p className="hint">{value.length.toLocaleString()} characters{value.trim().length < 50 ? ' (add a little more)' : ''}</p>}
     </div>
   );
 }

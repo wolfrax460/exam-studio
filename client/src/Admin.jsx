@@ -141,28 +141,32 @@ function Users() {
         </select>
         <button onClick={bulkChangePlan} disabled={!bulkPlan || selected.length === 0}>Apply to selected</button>
       </div>
-      <table><thead><tr><th></th><th>Email</th><th>Name</th><th>Role</th><th>Plan</th><th>Active</th><th>Actions</th></tr></thead>
-        <tbody>{items.map((u) => (
-          <tr key={u.id}>
-            <td><input type="checkbox" checked={selected.includes(u.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, u.id] : selected.filter((x) => x !== u.id))} /></td>
-            <td>{u.email}</td><td>{u.name}</td>
-            <td><select value={u.role} onChange={(e) => changeRole(u, e.target.value)}><option>admin</option><option>teacher</option><option>student</option></select></td>
-            <td>
-              <select value={u.planId || ''} onChange={(e) => changePlan(u, e.target.value)}>
-                <option value="">—</option>
-                {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </td>
-            <td>{u.active ? 'yes' : 'no'}</td>
-            <td>
-              <button onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>
-              <button onClick={() => setDetail(u)}>Override</button>
-              <button onClick={() => resetPw(u)}>Reset pw</button>
-              <button onClick={() => signout(u)}>Sign out</button>
-              <button onClick={() => remove(u)}>Delete</button>
-            </td>
-          </tr>
-        ))}</tbody></table>
+      <div className="table-scroll" role="region" aria-label="Users table" tabIndex={0}>
+        <table>
+          <thead><tr><th></th><th>Email</th><th>Name</th><th>Role</th><th>Plan</th><th>Active</th><th>Actions</th></tr></thead>
+          <tbody>{items.map((u) => (
+            <tr key={u.id}>
+              <td><input type="checkbox" checked={selected.includes(u.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, u.id] : selected.filter((x) => x !== u.id))} /></td>
+              <td>{u.email}</td><td>{u.name}</td>
+              <td><select value={u.role} onChange={(e) => changeRole(u, e.target.value)}><option>admin</option><option>teacher</option><option>student</option></select></td>
+              <td>
+                <select value={u.planId || ''} onChange={(e) => changePlan(u, e.target.value)}>
+                  <option value="">—</option>
+                  {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </td>
+              <td>{u.active ? 'yes' : 'no'}</td>
+              <td>
+                <button onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>
+                <button onClick={() => setDetail(u)}>Override</button>
+                <button onClick={() => resetPw(u)}>Reset pw</button>
+                <button onClick={() => signout(u)}>Sign out</button>
+                <button onClick={() => remove(u)}>Delete</button>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
       <p>Total: {total}</p>
       <h3>Create user</h3>
       <div className="row2">
