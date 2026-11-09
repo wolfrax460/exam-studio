@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import defaultDownloads from '../downloads.json';
+import { DesktopVisual } from './ProductMarketing';
 
 const SERVER_ADDRESS = 'https://examstudio.duckdns.org';
 
@@ -68,6 +69,8 @@ export default function Desktop() {
   const windows = platformFor('windows');
   const linux = platformFor('linux');
   const mac = platformFor('mac');
+  const recommended = os === 'linux' ? linux : windows;
+  const recommendedUrl = recommended?.status === 'available' ? toAbs(recommended.url) : null;
 
   const startDownload = (platform: Platform | null) => {
     if (!platform?.url || !platform.file) return;
@@ -89,7 +92,8 @@ export default function Desktop() {
   return (
     <section id="desktop" className="section container-x">
       <h2 className="heading mb-3">Desktop app</h2>
-      <p className="sub mb-8">Install once on your computer. Files download from this same server and keep your data local.</p>
+      <p className="sub mb-8">Download Exam Studio for Windows or Linux. Connect it to your server to use generation and online workflows.</p>
+      <DesktopVisual />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
         <div className="card">
@@ -101,26 +105,22 @@ export default function Desktop() {
           <h3 className="text-xl font-semibold mb-3">Download for {os === 'mac' ? 'Mac' : os === 'linux' ? 'Linux' : 'Windows'}</h3>
           <p className="text-sm opacity-75 mb-3">{data?.whatIsNew || 'Desktop build hosted on the same domain.'}</p>
 
-          {os !== 'mac' ? (
+          {os !== 'mac' && recommendedUrl ? (
             <a
-              href={toAbs(os === 'linux' ? linux?.url : windows?.url) || undefined}
-              download={(os === 'linux' ? linux?.file : windows?.file) || undefined}
-              onClick={() => startDownload(os === 'linux' ? linux : windows)}
+              href={recommendedUrl}
+              download={recommended?.file || undefined}
+              onClick={() => startDownload(recommended)}
               className="btn btn-primary w-full"
             >
               Download {os === 'linux' ? `Linux package (${fmtBytes(linux?.sizeBytes ?? null)})` : `Windows installer (${fmtBytes(windows?.sizeBytes ?? null)})`}
             </a>
-          ) : (
-            <button className="btn btn-ghost w-full" disabled>
-              Mac: coming soon
-            </button>
-          )}
+          ) : <p className="text-sm">{os === 'mac' ? 'Mac: coming soon' : 'A download is currently unavailable for this platform.'}</p>}
 
           {mac?.status === 'coming-soon' ? null : null}
 
-          <p className="text-xs mt-3 opacity-70">
-            If the download did not start, use <a className="underline" href={toAbs(os === 'linux' ? linux?.url : windows?.url) || undefined} download>Try again</a>.
-          </p>
+          {recommendedUrl && os !== 'mac' && <p className="text-xs mt-3 opacity-70">
+            If the download did not start, <a className="underline" href={recommendedUrl} download>try again</a>.
+          </p>}
 
           {started ? (
             <div className="mt-4 p-4 rounded-xl border border-[color:var(--c-line)]">
@@ -128,7 +128,7 @@ export default function Desktop() {
               <p className="text-sm mb-1">Size: {started.size}</p>
               <p className="text-sm mb-1 break-all">SHA-256: {started.sha}</p>
               <button className="btn btn-small btn-ghost" onClick={() => navigator.clipboard.writeText(started.sha)}>Copy</button>
-              <a href="#desktop-install-windows" className="btn btn-small btn-ghost ml-2">Next: install guide</a>
+              <a href="#desktop-install" className="btn btn-small btn-ghost ml-2">Next: install guide</a>
               <p className="text-xs mt-3 opacity-70">Mac support is still on the way. <a className="underline" href="mailto:wolfras87@gmail.com">Notify me when ready</a></p>
             </div>
           ) : null}
@@ -180,7 +180,7 @@ export default function Desktop() {
         </div>
       </div>
 
-      <div className="card mb-6">
+      <div id="desktop-install" className="card mb-6">
         <h3 className="heading text-lg mb-4">Install guide</h3>
         <div className="flex gap-2 mb-4">
           <button className={`btn btn-small ${installTab === 'windows' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setInstallTab('windows')}>Windows</button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { config } from '../config';
+import { Brand } from './SiteNav';
 
 function BackendStatus() {
   const [status, setStatus] = useState<'unknown'|'up'|'down'>('unknown');
@@ -20,19 +21,29 @@ function BackendStatus() {
 export default function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="border-t border-[color:var(--c-line)] py-10">
-      <div className="container-x flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div className="space-y-2">
-          <p className="font-semibold">{config.brand.name}</p>
-          <p className="text-xs" style={{ color: 'var(--c-muted)' }}>© {year} {config.brand.name}. All rights reserved.</p>
+    <footer className="site-footer">
+      <div className="market-wrap footer-grid">
+        <div>
+          <Brand subtitle />
+          <p>A workspace for teaching materials, revision resources, and assessments.</p>
           <BackendStatus />
         </div>
-        <nav className="flex flex-wrap gap-4">
+        <nav aria-label="Product">
+          <h2>Product</h2>
+          <a href="/#features">Features</a>
+          <a href="/#how">How it works</a>
+          <a href="/#desktop">Desktop</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+        <nav aria-label="Resources">
+          <h2>Resources</h2>
+          <a href="/docs">Documentation</a>
           {config.footer.map(l => (
-            <a key={l.label} href={l.href} className="text-sm text-[color:var(--c-muted)] hover:text-[color:var(--c-accent)]">{l.label}</a>
+            <a key={l.label} href={l.href.startsWith('#') ? `/${l.href}` : l.href}>{l.label}</a>
           ))}
         </nav>
       </div>
+      <div className="market-wrap footer-bottom">© {year} Exam Studio. All rights reserved.</div>
     </footer>
   );
 }

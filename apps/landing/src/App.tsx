@@ -1,9 +1,6 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import Navbar from './components/Navbar';
-import Hero from './components/Hero';
+import Navbar from './components/SiteNav';
 import DemoPlayground from './components/DemoPlayground';
-import Features from './components/Features';
-import HowItWorks from './components/HowItWorks';
 import Free from './components/Free';
 import Docs from './components/Docs';
 import AITools from './components/AITools';
@@ -16,6 +13,7 @@ function RefundRedirect(){ window.location.replace('/terms'); return null; }
 import Contact from './components/Contact';
 import Changelog from './components/Changelog';
 import Footer from './components/Footer';
+import { ClosingCallToAction, FeatureDetails, FeatureGrid, InstitutionRoadmap, MarketingHero, MarketingWorkflow, ProductShowcase } from './components/ProductMarketing';
 
 function ScrollChrome() {
   const [pct, setPct] = useState(0);
@@ -53,7 +51,7 @@ export default function App() {
     return (
       <div id="top">
         <Navbar />
-        <Page />
+        <div id="main-content"><Page /></div>
         <Footer />
       </div>
     );
@@ -62,18 +60,22 @@ export default function App() {
     <div id="top">
       <ScrollChrome />
       <Navbar />
-      <main>
-        <Hero />
-        <DemoPlayground />
-        <Features />
-        <HowItWorks />
-        <Free />
+      <main id="main-content">
+        <MarketingHero />
+        <FeatureGrid />
+        <ProductShowcase />
+        <MarketingWorkflow />
+        <FeatureDetails />
         <AITools />
+        <InstitutionRoadmap />
         <Desktop />
+        <Free />
+        <DemoPlayground />
         <FaqSchema />
         <FAQ />
         <Contact />
         <Changelog />
+        <ClosingCallToAction />
       </main>
       <Footer />
     </div>
