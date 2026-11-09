@@ -1,0 +1,49 @@
+name: Stage verified Exam Studio v0.2.3 installers
+
+on:
+  push:
+    branches: [codex/desktop-v0.2.3-publish]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.2.3
+      BUILD_RUN: "42659142787"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v0.2.3
+      - name: Verify successful native builds came from the release tag
+        run: |
+          gh run view "$BUILD_RUN" --json headSha,headBranch,event,workflowName,jobs |
+            jq -e --arg sha "$(git rev-parse HEAD)" --arg tag "$RELEASE_TAG" '
+              .headSha == $sha and .headBranch == $tag and .event == "push"
+              and .workflowName == "Release Exam Studio"
+              and ([.jobs[] | select((.name | startswith("Build ")) and .conclusion == "success")] | length) == 4
+            '
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BUILD_RUN }}
+          pattern: desktop-*
+          merge-multiple: true
+          path: installers
+      - name: Verify packages and stage a draft
+        working-directory: installers
+        run: |
+          files=(Exam-Studio-Setup-0.2.3.exe Exam-Studio-0.2.3-portable.exe
+            Exam-Studio-0.2.3-linux-x86_64.AppImage Exam-Studio-0.2.3-linux-amd64.deb
+            Exam-Studio-0.2.3-linux-x64.zip Exam-Studio-0.2.3-mac-arm64.dmg
+            Exam-Studio-0.2.3-mac-x64.dmg)
+          for file in "${files[@]}"; do
+            test -s "$file"
+          done
+          sha256sum -- "${files[@]}" > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Exam Studio $RELEASE_TAG" \
+            --notes-file ../RELEASE_NOTES.md "${files[@]}" SHA256SUMS.txt
