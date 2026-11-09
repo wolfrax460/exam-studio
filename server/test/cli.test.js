@@ -110,9 +110,13 @@ describe('runCli', () => {
   it('keeps the answer when the temp folder cannot be deleted', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'exam-studio-cli-'));
     tempDirs.push(dir);
-    writeFileSync(path.join(dir, 'exam-studio-lock.cmd'), '@echo off\r\necho {"ok":true}\r\n');
+    const scriptName = isWindows ? 'exam-studio-lock.cmd' : 'exam-studio-lock';
+    const script = isWindows
+      ? '@echo off\r\necho {"ok":true}\r\n'
+      : '#!/bin/sh\nprintf \'%s\\r\\n\' \'{"ok":true}\'\n';
+    writeFileSync(path.join(dir, scriptName), script, { mode: 0o755 });
     const previousPath = process.env.PATH;
-    process.env.PATH = `${dir};${previousPath}`;
+    process.env.PATH = `${dir}${path.delimiter}${previousPath}`;
     const realRm = fs.rmSync;
     try {
       CLI_PRESETS['test-locked'] = { bin: 'exam-studio-lock', name: 'Locked Tool', via: 'file', args: ({ file }) => ['run', 'read it', '-f', file] };
