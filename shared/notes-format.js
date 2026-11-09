@@ -17,7 +17,8 @@ export const BLOCK_TYPES = [
   'example',
   'compare',
   'check',
-  'trap'
+  'trap',
+  'code'
 ];
 
 const CALLOUT_TONES = ['tip', 'warning', 'exam', 'note'];
@@ -87,6 +88,10 @@ function checkBlock(block, path, errors) {
       if (!isText(block.wrong)) errors.push({ path: at('wrong'), message: 'trap needs the common mistake' });
       if (!isText(block.right)) errors.push({ path: at('right'), message: 'trap needs the correct answer' });
       if (!isText(block.why)) errors.push({ path: at('why'), message: 'trap needs a reason' });
+      break;
+    case 'code':
+      if (!isText(block.code)) errors.push({ path: at('code'), message: 'code needs the source text' });
+      if (block.language !== undefined && !isText(block.language)) errors.push({ path: at('language'), message: 'language must be a non-empty string when present' });
       break;
     default:
       break;
@@ -199,6 +204,8 @@ export function blockText(block) {
       return `${block.question} ${block.answer}`;
     case 'trap':
       return `${block.wrong} ${block.right} ${block.why}`;
+    case 'code':
+      return block.code;
     default:
       return '';
   }

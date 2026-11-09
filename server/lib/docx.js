@@ -600,6 +600,7 @@ function codeParagraph(code) {
 }
 
 export async function notesDocx(notes) {
+  if (notes?.format === 'exam-studio/study-notes') return notesRichDocx(notes);
   const topics = (notes.sections || []).map((s) => s.topic).filter(Boolean);
   const children = [
     para([t(notes.title || 'Study notes', { bold: true, size: 32 })], { after: 160 }),
@@ -629,6 +630,87 @@ export async function notesDocx(notes) {
     }],
   });
   return Packer.toBuffer(doc);
+}
+
+// The rich notes document is block-based: headings, lists, tables, callouts, examples and
+// code all need their own Word treatment. Keep the same A4 portrait flow as the old notes export.
+function notesRichDocx(notes) {
+  const meta = notes.meta || {};
+  const title = meta.title || notes.title || 'Study notes';
+  const children = [
+    para([t(title, { bold: true, size: 32 })], { after: 80 }),
+  ];
+  const chips = [meta.unit, meta.course, meta.level, meta.estimatedMinutes ? `${meta.estimatedMinutes} min read` : ''].filter(Boolean);
+  if (chips.length) children.push(para([t(chips.join('  |  '), { italics: true })], { after: 120 }));
+  if (notes.summary) children.push(para([t(notes.summary)], { after: 100 }));
+
+  if (notes.objectives?.length) {
+    children.push(para([t('By the end you should be able to', { bold: true, size: 24 })], { before: 160, after: 60 }));
+    children.push(...bullets(notes.objectives));
+  }
+  if (notes.keyTerms?.length) {
+    children.push(para([t('Key terms', { bold: true, size: 24 })], { before: 160, after: 60 }));
+    children.push(plainTable(['Term', 'Meaning'], notes.keyTerms.map((entry) => [entry.term, entry.definition]), [28, 72]));
+    children.push(para([t('')], { after: 80 }));
+  }
+
+  for (const section of notes.sections || []) {
+    children.push(para([t(section.title || 'Section', { bold: true, size: 24 })], { before: 220, after: 70, keepNext: true }));
+    for (const block of section.blocks || []) children.push(...notesRichBlock(block));
+  }
+
+  const doc = new Document({
+    styles: { default: { document: { run: { font: FONT, size: 22 } } } },
+    numbering: {
+      config: [{
+        reference: 'bullets',
+        levels: [{ level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 540, hanging: 270 } } } }],
+      }],
+    },
+    sections: [{
+      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } },
+      footers: { default: footer(title) },
+      children,
+    }],
+  });
+  return Packer.toBuffer(doc);
+}
+
+function notesRichBlock(block) {
+  const gap = () => para([t('')], { after: 80 });
+  switch (block.type) {
+    case 'paragraph':
+      return [para(rich(block.text), { after: 100 })];
+    case 'list':
+      return block.ordered ? numSteps(block.items) : bullets(block.items);
+    case 'definition':
+      return [para([t(`${block.term}: `, { bold: true }), ...rich(block.text)], { after: 100 })];
+    case 'table': {
+      const width = Math.floor(9752 / Math.max(1, block.columns.length));
+      return [plainTable(block.columns, block.rows, block.columns.map(() => width)), gap()];
+    }
+    case 'callout':
+      return [plainTable([block.title || 'Note'], [[block.text]], [9752]), gap()];
+    case 'example': {
+      const out = [para([t(block.title || 'Example', { bold: true, size: 22 })], { before: 80, after: 50 })].concat(numSteps(block.steps));
+      out.push(para([t('Answer: ', { bold: true }), ...rich(block.answer)], { before: 50, after: 80 }));
+      return out;
+    }
+    case 'compare': {
+      const rows = [];
+      const count = Math.max(block.left.items.length, block.right.items.length);
+      for (let i = 0; i < count; i += 1) rows.push([block.left.items[i] || '', block.right.items[i] || '']);
+      return [plainTable([block.left.title, block.right.title], rows, [50, 50]), gap()];
+    }
+    case 'check':
+      return [para([t('Check: ', { bold: true }), ...rich(block.question)], { after: 50 }), para([t('Answer: ', { bold: true }), ...rich(block.answer)], { after: 100 })];
+    case 'trap':
+      return [plainTable(['Common mistake', 'Correct', 'Why'], [[block.wrong, block.right, block.why]], [30, 35, 35]), gap()];
+    case 'code':
+      return [codeParagraph(block.code), gap()];
+    default:
+      return [];
+  }
 }
 
 // ---------------------------------------------------------------- study handout

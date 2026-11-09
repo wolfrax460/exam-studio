@@ -10,6 +10,7 @@ import {
   sectionItemCount, structuredItemMarks, numberedItems, sanitizeSectionPlan,
 } from '../../shared/format.js';
 import { demoExam, demoNotes, demoCards, demoHandout } from './demo.js';
+import { notesDocumentFromNotes } from './notesDocument.js';
 import { demoSectionsExam } from './demo-sections.js';
 import { callStructured, providerReady } from './engine.js';
 import * as admin from './adminStore.js';
@@ -442,6 +443,21 @@ Rewrite everything in your own words. Never copy a sentence from the notes. Simp
   }
   const cleaned = results.map(cleanNotes);
   return { title: cleaned[0].title, sections: cleaned.flatMap((c) => c.sections) };
+}
+
+/**
+ * The web Study Guide uses the rich, block-based notes format. The MCP and /api/v1
+ * surfaces keep the legacy shape for compatibility, while this adapter adds the
+ * rich document without another AI call.
+ */
+export async function generateNotesDocument({ text, title, level, focus }) {
+  const notes = await generateNotes({ text, title, focus });
+  const doc = notesDocumentFromNotes(notes, {
+    title,
+    level,
+    sourceChars: String(text || '').length,
+  });
+  return notes.demo ? { ...doc, demo: true } : doc;
 }
 
 export async function generateCards({ text, title, count }) {

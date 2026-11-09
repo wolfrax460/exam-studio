@@ -82,6 +82,12 @@ function Block({ block }) {
           <p className="nr-trap-why">{block.why}</p>
         </div>
       );
+    case 'code':
+      return (
+        <pre className="nr-code">
+          <code>{block.code}</code>
+        </pre>
+      );
     default:
       return null;
   }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { get, post, del, download } from './api.js';
 import { login, logout, register, currentUser, setSession, clearSession } from './auth.js';
 import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, validateHandout, handoutStats, estimateHandoutPages, isSectionsExam } from '../../shared/format.js';
+import { validateNotes } from '../../shared/notes-format.js';
 import Settings from './Settings.jsx';
 import Admin from './Admin.jsx';
 import Agents from './Agents.jsx';
@@ -9,7 +10,11 @@ import TakeExam from './TakeExam.jsx';
 import PublishOnline from './PublishOnline.jsx';
 import PaperStudio from './studio/PaperStudio.jsx';
 import SourcePicker from './SourcePicker.jsx';
-import LibraryTab from './tabs/LibraryTab.jsx';const TABS = [
+import NotesReader from './NotesReader.jsx';
+import { outputTitle, handoutPlainText, studyNotesText, lastOutputKey, isNotesDocument } from './study-output.js';
+import LibraryTab from './tabs/LibraryTab.jsx';
+
+const TABS = [
   ['guide', 'Study guide'],
   ['studio', 'Paper studio'],
   ['library', 'Library'],
@@ -50,6 +55,9 @@ export default function App() {
   const [handout, setHandout] = useState(null);
   const [handoutProgress, setHandoutProgress] = useState(null);
   const [handoutJobId, setHandoutJobId] = useState('');
+  const [notesSavedId, setNotesSavedId] = useState('');
+  const [handoutSavedId, setHandoutSavedId] = useState('');
+  const [savingOutput, setSavingOutput] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -167,7 +175,39 @@ export default function App() {
     return () => window.removeEventListener('hashchange', openFromHash);
   }, []);
 
-    const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
+
+  function rememberOutput(kind, id) {
+    try { localStorage.setItem(lastOutputKey(user?.id, kind), id); } catch { /* storage can be unavailable */ }
+  }
+
+  async function persistOutput(kind, data) {
+    if (!user || !data) return null;
+    setSavingOutput(kind);
+    try {
+      const saved = await post('/library', { kind, data, title: outputTitle(kind, data) });
+      if (kind === 'notes') setNotesSavedId(saved.id);
+      if (kind === 'handout') setHandoutSavedId(saved.id);
+      rememberOutput(kind, saved.id);
+      return saved;
+    } catch (e) {
+      flash(`${kind === 'handout' ? 'Handout' : 'Study notes'} generated, but could not be saved to Library: ${e.message}`);
+      return null;
+    } finally {
+      setSavingOutput('');
+    }
+  }
+
+  async function copyOutput(value) {
+    const text = String(value || '');
+    if (!text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      flash('Copied to clipboard');
+    } catch {
+      setError('Could not copy to the clipboard. Select the document text and copy it manually.');
+    }
+  }
 
   // ---------------------------------------------------------------- auth actions
   const switchMode = (mode) => {
@@ -211,6 +251,7 @@ export default function App() {
     setUser(null);
     // Do not leave one person's work on screen for the next person.
     setNotes(null); setExam(null); setCards(null); setHandout(null);
+    setNotesSavedId(''); setHandoutSavedId('');
     setText(''); setFileInfo(''); setFocus('');
     setProject(BLANK_PROJECT);
     setError('');
@@ -317,13 +358,42 @@ export default function App() {
     get('/me/quota').then(setQuota).catch(() => {});
   }, [user]);
 
+  // Generated documents are saved to the existing Library immediately. The id is kept per user
+  // so a browser refresh can reload the document from the server instead of losing it.
+  useEffect(() => {
+    if (!user) return undefined;
+    let alive = true;
+    (async () => {
+      for (const kind of ['notes', 'handout']) {
+        let id = '';
+        try { id = localStorage.getItem(lastOutputKey(user.id, kind)) || ''; } catch { /* ignore */ }
+        if (!id) continue;
+        try {
+          const item = await get(`/library/${id}`);
+          if (!alive || item.kind !== kind) continue;
+          if (kind === 'notes') { setNotes(item.data); setNotesSavedId(item.id); }
+          else { setHandout(item.data); setHandoutSavedId(item.id); }
+        } catch {
+          try { localStorage.removeItem(lastOutputKey(user.id, kind)); } catch { /* ignore */ }
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [user]);
+
   const loadSelectedUnits = () => notesLibSelected && run('upload', async () => {
     const r = await post('/notes-lib/load', { name: notesLibSelected, units: notesLibSelectedUnits });
     setText(r.text || '');
     setFileInfo(`${r.name}: ${(r.chars ?? r.charCount).toLocaleString()} characters, ${r.numPages || '?'} page(s)}` + (notesLibSelectedUnits.length && r.units?.length ? ` (units: ${notesLibSelectedUnits.length})` : ''));
   });
 
-  const genNotes = () => run('notes', async () => { setNotes(await post('/notes/generate', { ...body(), focus })); setTab('guide'); setGuideMode('notes'); });
+  const genNotes = () => run('notes', async () => {
+    const result = await post('/notes/generate', { ...body(), focus });
+    setNotes(result);
+    setNotesSavedId('');
+    setTab('guide'); setGuideMode('notes');
+    await persistOutput('notes', result);
+  });
   const genCards = () => run('cards', async () => { setCards(await post('/flashcards/generate', { ...body(), count: cardCount })); setTab('studio'); setStudioView('flashcards'); });
   const genExam = () => run('exam', async () => {
     let avoid = [];
@@ -356,8 +426,10 @@ export default function App() {
         includePractical: handoutOpts.includePractical,
       });
       setHandout(result);
+      setHandoutSavedId('');
       setTab('guide');
       setGuideMode('handout');
+      await persistOutput('handout', result);
       flash(result.demo ? 'Demo sample ready' : `Handout ready: ${result.stats?.lessons || 0} lessons`);
     } finally {
       clearInterval(timer);
@@ -382,7 +454,12 @@ export default function App() {
     return out.filter(Boolean).slice(0, 60);
   }
 
-  const save = (kind, data) => run('save', async () => { await post('/library', { kind, data, title: data.title }); flash('Saved to library'); });
+  const save = (kind, data) => run('save', async () => {
+    const saved = await post('/library', { kind, data, title: outputTitle(kind, data) });
+    if (kind === 'notes') { setNotesSavedId(saved.id); rememberOutput('notes', saved.id); }
+    if (kind === 'handout') { setHandoutSavedId(saved.id); rememberOutput('handout', saved.id); }
+    flash('Saved to library');
+  });
 
   // The two AI generators live inside Paper studio now. Their handlers, settings and result
   // views are the same ones the old Exam and Flashcards tabs used.
@@ -708,8 +785,13 @@ export default function App() {
                     <button className="primary" disabled={!sourceReady || !!busy} onClick={genNotes}>{busy === 'notes' ? 'Writing…' : 'Write study notes'}</button>
                   </div>
                   {!notes && <Empty ready={sourceReady} what="study notes" />}
-                  {notes && <NotesView notes={notes} onSave={() => save('notes', notes)}
-                    onWord={() => run('export', () => download('/export/notes-docx', { notes }, 'Study_Notes.docx'))} />}
+                  {notes && <NotesView notes={notes}
+                    onSave={() => save('notes', notes)}
+                    onWord={() => run('export', () => download('/export/notes-docx', { notes }, 'Study_Notes.docx'))}
+                    onCopy={() => copyOutput(studyNotesText(notes))}
+                    onRegenerate={genNotes}
+                    onOpenLibrary={() => setTab('library')}
+                    savedId={notesSavedId} saving={savingOutput === 'notes'} busy={busy} />}
                 </section>
               )}
 
@@ -735,6 +817,10 @@ export default function App() {
                   {!handout && busy !== 'handout' && <Empty ready={sourceReady} what="a study handout" />}
                   {handout && <HandoutView handout={handout}
                     onSave={() => save('handout', handout)}
+                    onCopy={() => copyOutput(handoutPlainText(handout))}
+                    onRegenerate={genHandout}
+                    onOpenLibrary={() => setTab('library')}
+                    savedId={handoutSavedId} saving={savingOutput === 'handout'}
                     run={run} busy={busy} />}
                 </section>
               )}
@@ -755,9 +841,9 @@ export default function App() {
               {tab === 'library' && (
                 <LibraryTab onOpen={(item) => {
                   if (item.kind === 'exam') { setExam(item.data); setTab('studio'); setStudioView('generate'); }
-                  if (item.kind === 'notes') { setNotes(item.data); setTab('guide'); setGuideMode('notes'); }
+                  if (item.kind === 'notes') { setNotes(item.data); setNotesSavedId(item.id); rememberOutput('notes', item.id); setTab('guide'); setGuideMode('notes'); }
                   if (item.kind === 'flashcards') { setCards(item.data); setTab('studio'); setStudioView('flashcards'); }
-                  if (item.kind === 'handout') { setHandout(item.data); setTab('guide'); setGuideMode('handout'); }
+                  if (item.kind === 'handout') { setHandout(item.data); setHandoutSavedId(item.id); rememberOutput('handout', item.id); setTab('guide'); setGuideMode('handout'); }
                 }} />
               )}
             </main>
@@ -1184,22 +1270,41 @@ function SectionsExamView({ exam, setExam, target, project, busy, run, onSave })
 }
 
 
-function NotesView({ notes, onSave, onWord }) {
+function NotesView({ notes, onSave, onWord, onCopy, onRegenerate, onOpenLibrary, savedId, saving, busy }) {
+  const rich = isNotesDocument(notes);
+  const validation = useMemo(() => (rich ? validateNotes(notes) : null), [notes, rich]);
+  const disabled = !!busy || saving;
+  const saveLabel = savedId ? 'Saved to Library' : (saving || busy === 'save') ? 'Saving…' : 'Save to Library';
   return (
     <div>
       <div className="bar wrap">
-        <button className="primary" onClick={onWord}>Download (Word)</button>
-        <button onClick={onSave}>Save to library</button>
+        <button className="primary" disabled={disabled || (rich && !validation.ok)} onClick={onWord}>Download (Word)</button>
+        <button disabled={disabled} onClick={onCopy}>Copy notes</button>
+        <button disabled={disabled} onClick={() => window.print()}>Print</button>
+        <button className="primary" disabled={disabled || !!savedId} onClick={onSave}>{saveLabel}</button>
+        {savedId && <button disabled={disabled} onClick={onOpenLibrary}>View in Library</button>}
+        <button disabled={disabled} onClick={onRegenerate}>Write a new version</button>
       </div>
-      <h2 className="doc">{notes.title}</h2>
       {notes.demo && <p className="hint">Built-in demo sample, not written from your notes.</p>}
-      {notes.sections.map((s, i) => (
-        <article key={i} className="note">
-          <h3>{s.topic}</h3>
-          <ul>{s.keyPoints.map((k, j) => <li key={j}>{k}</li>)}</ul>
-          {s.example && <p className="remember"><strong>Remember:</strong> {s.example}</p>}
-        </article>
-      ))}
+      {rich ? (
+        validation.ok ? <NotesReader doc={notes} /> : (
+          <div className="banner error" role="alert">
+            <strong>This notes document cannot be displayed.</strong>
+            <ul>{validation.errors.slice(0, 12).map((error, index) => <li key={index}><code>{error.path || '(root)'}</code> — {error.message}</li>)}</ul>
+          </div>
+        )
+      ) : (
+        <>
+          <h2 className="doc">{notes.title}</h2>
+          {(notes.sections || []).map((s, i) => (
+            <article key={i} className="note">
+              <h3>{s.topic}</h3>
+              <ul>{(s.keyPoints || []).map((k, j) => <li key={j}>{k}</li>)}</ul>
+              {s.example && <p className="remember"><strong>Remember:</strong> {s.example}</p>}
+            </article>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -1288,11 +1393,13 @@ function HandoutSettings({ opts, setOpts }) {
   );
 }
 
-function HandoutView({ handout, onSave, run, busy }) {
+function HandoutView({ handout, onSave, onCopy, onRegenerate, onOpenLibrary, savedId, saving, run, busy }) {
   const warnings = useMemo(() => validateHandout(handout), [handout]);
   const stats = useMemo(() => handoutStats(handout), [handout]);
   const pages = useMemo(() => estimateHandoutPages(handout), [handout]);
   const base = (handout.title || 'Study_Handout').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'Study_Handout';
+  const disabled = !!busy || saving;
+  const saveLabel = savedId ? 'Saved to Library' : (saving || busy === 'save') ? 'Saving…' : 'Save to Library';
 
   return (
     <div>
@@ -1319,10 +1426,13 @@ function HandoutView({ handout, onSave, run, busy }) {
       )}
 
       <div className="bar wrap">
-        <button className="primary" disabled={!!busy} onClick={() => run('export', () => download('/export/handout-docx', { handout }, `${base}.docx`))}>Download handout (Word)</button>
-        <button disabled={!!busy} onClick={() => run('export', () => download('/export/handout-pdf', { handout }, `${base}.pdf`))}>Download (PDF)</button>
-        <button disabled={!!busy} onClick={() => window.print()}>Print preview</button>
-        <button disabled={!!busy} onClick={onSave}>Save to library</button>
+        <button className="primary" disabled={disabled} onClick={() => run('export', () => download('/export/handout-docx', { handout }, `${base}.docx`))}>Download handout (Word)</button>
+        <button disabled={disabled} onClick={() => run('export', () => download('/export/handout-pdf', { handout }, `${base}.pdf`))}>Download (PDF)</button>
+        <button disabled={disabled} onClick={() => window.print()}>Print preview</button>
+        <button disabled={disabled} onClick={onCopy}>Copy content</button>
+        <button className="primary" disabled={disabled || !!savedId} onClick={onSave}>{saveLabel}</button>
+        {savedId && <button disabled={disabled} onClick={onOpenLibrary}>View in Library</button>}
+        <button disabled={disabled} onClick={onRegenerate}>Write a new version</button>
       </div>
 
       {handout.units.map((unit) => <HandoutUnit key={unit.number} unit={unit} />)}

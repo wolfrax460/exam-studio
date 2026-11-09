@@ -265,6 +265,8 @@ describe('generation through the chosen provider', () => {
     assert.equal(status, 200);
     assert.equal(body.title, demoNotes().title);
     assert.ok(body.sections.length > 0);
+    assert.equal(body.format, 'exam-studio/study-notes', 'the web notes route returns the rich document');
+    assert.ok(body.sections[0].blocks.length > 0);
     state.rejectTools = false;
   });
 

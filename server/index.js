@@ -12,7 +12,7 @@ import rateLimit from 'express-rate-limit';
 import { httpError } from './lib/errors.js';
 import { extractText } from './lib/extract.js';
 import { scanNotes, loadNote } from './lib/notesLib.js';
-import { generateNotes, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS, detectStructure, suggestOutcomeTitles } from './lib/ai.js';
+import { generateNotes, generateNotesDocument, generateCards, generateExam, generateHandout, activeInfo, DEMO, MAX_NOTES_CHARS, detectStructure, suggestOutcomeTitles } from './lib/ai.js';
 import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
@@ -1287,7 +1287,7 @@ app.post('/api/notes/generate', generateLimit, optionalAuthenticateUser, withUse
   if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'notes', text); }
   const started = Date.now();
   try {
-    const notes = await generateNotes({ text, title: s(req.body?.title, 120), focus: s(req.body?.focus, 300) });
+    const notes = await generateNotesDocument({ text, title: s(req.body?.title, 120), level: s(req.body?.level, 20), focus: s(req.body?.focus, 300) });
     if (req.user) { try { admin.recordAISuccess(Date.now() - started); } catch {} try { await admin.recordUsage({ userId: req.user.id, taskType: 'notes', estimatedTokens: Math.ceil(text.length / 4), success: true }); } catch {} }
     res.json(notes);
   } catch (e) { try { if (req.user) admin.recordAIFailure(e); } catch {} throw e; }
