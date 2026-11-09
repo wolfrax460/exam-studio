@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, del, download } from './api.js';
 import { login, logout, register, currentUser, setSession, clearSession } from './auth.js';
 import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, validateHandout, handoutStats, estimateHandoutPages, isSectionsExam } from '../../shared/format.js';
@@ -14,6 +14,7 @@ import NotesReader from './NotesReader.jsx';
 import { outputTitle, handoutPlainText, studyNotesText, lastOutputKey, isNotesDocument } from './study-output.js';
 import LibraryTab from './tabs/LibraryTab.jsx';
 import Icon from './ui/Icon.jsx';
+import brandMark from './assets/exam-studio-mark.svg';
 
 const TABS = [
   ['guide', 'Study guide'],
@@ -23,19 +24,16 @@ const TABS = [
 
 const PAGE_META = {
   guide: {
-    eyebrow: 'Study guide',
     title: 'Study Guide',
     sub: 'Generate comprehensive study notes and complete teaching handouts from your source material.',
     icon: 'book',
   },
   studio: {
-    eyebrow: 'Paper studio',
     title: 'Paper Studio',
     sub: 'Build papers, organise question banks and work with modules and flashcards.',
     icon: 'pen',
   },
   library: {
-    eyebrow: 'Library',
     title: 'Library',
     sub: 'Every generated document in one searchable teaching workspace.',
     icon: 'library',
@@ -108,6 +106,9 @@ export default function App() {
   const [navCollapsed, setNavCollapsed] = useState(() => { try { return localStorage.getItem('examStudioNav') === 'collapsed'; } catch { return false; } });
   const [focusMode, setFocusMode] = useState(() => { try { return localStorage.getItem('examStudioFocus') === '1'; } catch { return false; } });
   const [mobileNav, setMobileNav] = useState(false);
+  const mobileNavToggle = useRef(null);
+  const mobileNavClose = useRef(null);
+  const mainContent = useRef(null);
   const [globalQuery, setGlobalQuery] = useState('');
   const [libraryQuery, setLibraryQuery] = useState('');
 
@@ -184,6 +185,27 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('examStudioFocus', focusMode ? '1' : '0'); } catch { /* ignore */ }
   }, [focusMode]);
+
+  useEffect(() => {
+    if (!mobileNav || !user) return;
+    const main = mainContent.current;
+    if (!main) return;
+    const toggle = mobileNavToggle.current;
+    const mobile = window.matchMedia('(max-width: 1023px)');
+    const onResize = (event) => { if (!event.matches) setMobileNav(false); };
+    const onKey = (event) => { if (event.key === 'Escape') setMobileNav(false); };
+    main.inert = true;
+    const focusFrame = window.requestAnimationFrame(() => mobileNavClose.current?.focus());
+    mobile.addEventListener('change', onResize);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      main.inert = false;
+      toggle?.focus();
+      mobile.removeEventListener('change', onResize);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [mobileNav, user]);
 
   // F toggles focus mode unless the trainee is typing.
   useEffect(() => {
@@ -595,6 +617,7 @@ export default function App() {
 
   const goNav = (key) => {
     closeMobileNav();
+    setError('');
     if (key === 'guide') { setTab('guide'); return; }
     if (key === 'studio') { setTab('studio'); setStudioView('generate'); return; }
     if (key === 'library') { setLibraryQuery(''); setTab('library'); return; }
@@ -617,6 +640,7 @@ export default function App() {
     event.preventDefault();
     const query = globalQuery.trim();
     if (!query) return;
+    setError('');
     setLibraryQuery(query);
     setTab('library');
     closeMobileNav();
@@ -628,16 +652,18 @@ export default function App() {
         <form className="global-search" role="search" onSubmit={submitGlobalSearch}>
           <Icon name="search" size={17} />
           <input
+            type="search"
+            id="workspace-search"
             value={globalQuery}
             onChange={(event) => setGlobalQuery(event.target.value)}
             placeholder="Search your library…"
             aria-label="Search your library"
           />
-          {globalQuery && <button type="button" className="search-clear" onClick={() => setGlobalQuery('')} aria-label="Clear search">×</button>}
+          {globalQuery && <button type="button" className="search-clear" onClick={() => setGlobalQuery('')} aria-label="Clear search"><Icon name="close" size={14} /></button>}
         </form>
       ) : (
         <div className="topbar-brand">
-          <span className="app-brand-mark" aria-hidden="true">ES</span>
+          <img className="app-brand-mark" src={brandMark} alt="" />
           <strong>Exam Studio</strong>
         </div>
       )}
@@ -648,20 +674,18 @@ export default function App() {
             : health?.defaultAI
               ? <span className="pill" title="Exam Studio AI (default)">Studio AI</span>
               : health?.provider && <span className="pill" title={health.model ? `Your model: ${health.model}` : health.provider}>{health.model ? `Your model: ${health.model}` : health.provider}</span>}
-          {user && quota?.plan && <span className="pill" title="Remaining quota today">{quota.used.requestsToday}/{quota.plan.requestsPerDay ?? '∞'} today</span>}
+          {user && quota?.plan && <span className="pill quota-pill" title="Remaining quota today">{quota.used.requestsToday}/{quota.plan.requestsPerDay ?? '∞'} today</span>}
         </div>
         <div className="top-actions">
-          <button type="button" className="icon-btn mobile-nav-toggle" onClick={() => setMobileNav(true)} aria-label="Open navigation" title="Open navigation"><Icon name="menu" size={18} /></button>
-          <button type="button" className="icon-btn nav-toggle" onClick={() => setNavCollapsed((value) => !value)} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'} title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}><Icon name="menu" size={17} /></button>
+          <button ref={mobileNavToggle} type="button" className="icon-btn mobile-nav-toggle" onClick={() => setMobileNav(true)} aria-controls="main-navigation" aria-expanded={mobileNav} aria-label="Open navigation" title="Open navigation"><Icon name="menu" size={18} /></button>
+          <button type="button" className="icon-btn nav-toggle" onClick={() => setNavCollapsed((value) => !value)} aria-controls="main-navigation" aria-expanded={!navCollapsed} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'} title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}><Icon name="menu" size={17} /></button>
           <button type="button" className={focusMode ? 'icon-btn is-on' : 'icon-btn'} onClick={() => setFocusMode((value) => !value)} aria-pressed={focusMode} aria-label="Toggle focus mode" title="Focus mode (F)"><Icon name="spark" size={17} /></button>
-          <button type="button" className="icon-btn theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? '☀' : '☾'}</button>
+          <button type="button" className="icon-btn theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={17} /></button>
         </div>
         {user && (
           <details className="account-menu">
-            <summary aria-label="Open account menu">
+            <summary aria-label="Open account menu" title={accountName}>
               <span className="avatar" aria-hidden="true">{accountInitial}</span>
-              <span className="account-name" title={user.email}>{accountName}</span>
-              <span className="chev" aria-hidden="true">⌄</span>
             </summary>
             <div className="account-menu-panel">
               <div className="account-menu-head">
@@ -684,11 +708,11 @@ export default function App() {
     <header className="page-hero">
       <span className="page-hero-icon" aria-hidden="true"><Icon name={currentPage.icon} size={28} /></span>
       <div className="page-hero-copy">
-        <p className="eyebrow">Workspace / {currentPage.eyebrow}{version}</p>
-        <h1>{currentPage.title}</h1>
+        <div className="page-hero-title"><h1>{currentPage.title}</h1>{version}</div>
         <p>{currentPage.sub}</p>
       </div>
       <div className="page-hero-actions">
+        <span className="quick-actions-label">Quick actions</span>
         {tab !== 'library' && <button type="button" onClick={() => goNav('library')}><Icon name="library" size={15} /> View Library</button>}
         {tab === 'library' && <button type="button" onClick={() => goNav('guide')}><Icon name="book" size={15} /> Study Guide</button>}
         <button type="button" onClick={() => setShowSettings(true)}><Icon name="settings" size={15} /> Settings</button>
@@ -704,7 +728,7 @@ export default function App() {
   }
 
   return (
-    <div className={(user ? 'app app-shell' : 'app') + (user && navCollapsed ? ' nav-collapsed' : '') + (user && focusMode ? ' focus-mode' : '')}>
+    <div className={(user ? 'app app-shell' : 'app') + (user && navCollapsed && !mobileNav ? ' nav-collapsed' : '') + (user && focusMode ? ' focus-mode' : '')}>
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
@@ -796,53 +820,59 @@ export default function App() {
       {/* ---------------------------------------------------------- the app */}
       {!checking && user && (
         <>
-          <button className={mobileNav ? 'nav-scrim is-open' : 'nav-scrim'} type="button" aria-label="Close navigation" tabIndex={mobileNav ? 0 : -1} onClick={closeMobileNav} />
-          <aside className={'sidebar' + (navCollapsed ? ' is-collapsed' : '') + (mobileNav ? ' is-mobile-open' : '')} aria-label="Main navigation">
-            <button className="sidebar-close" type="button" onClick={closeMobileNav} aria-label="Close navigation"><Icon name="close" size={18} /></button>
+          <button className={mobileNav ? 'nav-scrim is-open' : 'nav-scrim'} type="button" aria-hidden="true" tabIndex={-1} onClick={closeMobileNav} />
+          <aside id="main-navigation" className={'sidebar' + (mobileNav ? ' is-mobile-open' : '')} aria-label="Main navigation">
+            <button ref={mobileNavClose} className="sidebar-close" type="button" onClick={closeMobileNav} aria-label="Close navigation"><Icon name="close" size={18} /></button>
             <div className="app-brand">
-              <span className="app-brand-mark" aria-hidden="true"><Icon name="book" size={21} /></span>
+              <img className="app-brand-mark" src={brandMark} alt="" />
               <span className="app-brand-text">
                 <strong>Exam Studio</strong>
-                <span>{project.module || 'Teaching workspace'}</span>
+                <span>Teaching Workspace</span>
               </span>
             </div>
-            <p className="nav-label">Workspace</p>
-            <nav className="sidebar-nav">
+            <nav className="sidebar-nav" aria-label="Workspace navigation">
               {NAV_ITEMS.map((item) => (
                 <button
                   type="button"
                   key={item.key}
                   className={activeNav === item.key ? 'on' : ''}
+                  aria-label={item.label}
+                  title={item.label}
                   aria-current={activeNav === item.key ? 'page' : undefined}
                   onClick={() => goNav(item.key)}
                 >
-                  <Icon name={item.icon} size={19} />
+                  <Icon name={item.icon} size={21} />
                   <span className="nav-item-label">{item.label}</span>
                 </button>
               ))}
             </nav>
-            <p className="nav-label nav-label-account">Account</p>
             <nav className="sidebar-nav sidebar-nav-secondary" aria-label="Account navigation">
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowSettings(true); }}><Icon name="settings" size={17} /><span className="nav-item-label">Settings</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowAgents(true); }}><Icon name="agents" size={17} /><span className="nav-item-label">Agents</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowTokens(true); loadTokens(); }}><Icon name="tokens" size={17} /><span className="nav-item-label">API Tokens</span></button>
               {user?.role === 'admin' && <button type="button" className="link" onClick={() => window.location.assign('/admin')}><Icon name="admin" size={17} /><span className="nav-item-label">Admin</span></button>}
             </nav>
-            <div className="sidebar-user">
-              <span className="avatar" aria-hidden="true">{accountInitial}</span>
-              <span className="sidebar-user-copy">
-                <small>Welcome back,</small>
-                <strong title={accountName}>{accountName}</strong>
-                <small title={user.email}>{user.email}</small>
-              </span>
+            <div className="sidebar-account">
+              <div className="sidebar-user">
+                <span className="avatar" aria-hidden="true">{accountInitial}</span>
+                <span className="sidebar-user-copy">
+                  <strong title={accountName}>{accountName}</strong>
+                  <small title={user.email}>{user.email}</small>
+                </span>
+              </div>
+              <button type="button" className="sidebar-signout" onClick={handleLogout}><Icon name="sign-out" size={18} /> Sign out</button>
             </div>
-            <button type="button" className="sidebar-signout" onClick={handleLogout}><Icon name="arrow" size={16} /> Sign out</button>
           </aside>
 
-          <div className={'main' + (mobileNav ? ' is-nav-open' : '')}>
+          <div className="main" ref={mainContent}>
             {topBar}
             {pageHero}
-          {error && <div className="banner error" role="alert">{error}</div>}
+          {error && (
+            <div className="banner error workspace-error" role="alert">
+              <span>{error}</span>
+              <button type="button" className="icon-btn" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={15} /></button>
+            </div>
+          )}
 
           {update?.updateAvailable && (
             <div className="banner warn" role="status">
@@ -859,29 +889,10 @@ export default function App() {
             {tab !== 'library' && (
             <aside className="panel source">
               <div className="section-head source-head">
+                <span className="workspace-icon"><Icon name="document" size={20} /></span>
                 <div>
-                  <p className="eyebrow">Source material</p>
-                  <h2>Your source</h2>
-                </div>
-                <span className="step-chip">Step 1</span>
-              </div>
-              <p className="hint source-intro">Add your study material and choose options.</p>
-              <div className="source-fields">
-                <label className="field">
-                  <span>Module title</span>
-                  <input value={project.module} onChange={(e) => setProject({ ...project, module: e.target.value })} placeholder="e.g. SWDDD401 Database Development" />
-                </label>
-                <div className="row2">
-                  <label className="field"><span>Level</span>
-                    <input value={project.level} onChange={(e) => setProject({ ...project, level: e.target.value })} placeholder="L4" /></label>
-                  <label className="field"><span>Duration</span>
-                    <input value={project.duration} onChange={(e) => setProject({ ...project, duration: e.target.value })} /></label>
-                </div>
-                <div className="row2">
-                  <label className="field"><span>Trade</span>
-                    <input value={project.trade} onChange={(e) => setProject({ ...project, trade: e.target.value })} placeholder="Software Development" /></label>
-                  <label className="field"><span>School</span>
-                    <input value={project.school} onChange={(e) => setProject({ ...project, school: e.target.value })} /></label>
+                  <h2>1. Your Source</h2>
+                  <p className="hint">Add your study material and choose options.</p>
                 </div>
               </div>
               <SourcePicker
@@ -909,14 +920,26 @@ export default function App() {
                 ) : null}
               />
               {fileInfo && <p className="hint source-file-info">{fileInfo}</p>}
+              <div className="source-fields">
+                <label className="field"><span>Module title</span>
+                  <input value={project.module} onChange={(e) => setProject({ ...project, module: e.target.value })} placeholder="e.g. Database Development" /></label>
+                <label className="field"><span>Academic level</span>
+                  <input value={project.level} onChange={(e) => setProject({ ...project, level: e.target.value })} placeholder="L4" /></label>
+                <label className="field"><span>Duration</span>
+                  <input value={project.duration} onChange={(e) => setProject({ ...project, duration: e.target.value })} /></label>
+                <label className="field"><span>Trade <small>(optional)</small></span>
+                  <input value={project.trade} onChange={(e) => setProject({ ...project, trade: e.target.value })} placeholder="Software Development" /></label>
+                <label className="field"><span>School <small>(optional)</small></span>
+                  <input value={project.school} onChange={(e) => setProject({ ...project, school: e.target.value })} placeholder="Enter your school" /></label>
+                {tab === 'guide' && guideMode === 'notes' && (
+                  <label className="field"><span>Focus topic <small>(optional)</small></span>
+                    <input value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="e.g. normalization, SQL" /></label>
+                )}
+              </div>
               {tab === 'guide' && guideMode === 'notes' && (
                 <div className="source-generate">
-                  <label className="field">
-                    <span>Focus topic (optional)</span>
-                    <input value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="e.g. normalization, joins, exam technique" />
-                  </label>
                   <button className="primary" disabled={!sourceReady || !!busy} onClick={genNotes}>
-                    <Icon name="spark" size={16} /> {busy === 'notes' ? 'Writing study notes…' : notes ? 'Generate another version' : 'Generate study notes'}
+                    <Icon name="spark" size={18} /> {busy === 'notes' ? 'Writing study notes…' : notes ? 'Generate another version' : 'Generate Study Notes'}
                   </button>
                   {!sourceReady && <p className="hint">Add at least 50 characters of source material to generate.</p>}
                 </div>
@@ -938,8 +961,8 @@ export default function App() {
                     </div>
                   )}
                   <ol className="steps" aria-label="Three step flow">
-                    <li className={sourceReady ? 'done' : 'active'}><span className="step-no">1</span> Source notes</li>
-                    <li className={(tab === 'guide' || tab === 'studio') ? 'active' : ''}><span className="step-no">2</span> Generate</li>
+                    <li className={sourceReady ? 'done' : 'active'}><span className="step-no">{sourceReady ? <Icon name="check" size={13} /> : '1'}</span> Source notes</li>
+                    <li className={sourceReady ? 'active' : ''}><span className="step-no">2</span> Generate</li>
                     <li className={(notes || cards || exam || handout) ? 'done' : ''}><span className="step-no">3</span> Review &amp; export</li>
                   </ol>
                   {sourceReady && <p className="hint source-count">Source: {text.length.toLocaleString()} characters (~{Math.ceil(text.length / 4).toLocaleString()} tokens).</p>}
@@ -948,10 +971,13 @@ export default function App() {
 
               {tab === 'guide' && (
                 <div className="workspace-head">
-                  <div>
-                    <p className="eyebrow">Document workspace</p>
-                    <h2>{guideMode === 'notes' ? 'Study notes' : 'Teaching handout'}</h2>
-                    <p className="hint">{guideMode === 'notes' ? 'A concise, readable revision document built from your source material.' : 'A complete unit-by-unit handout with lessons, examples and revision support.'}</p>
+                  <div className="workspace-title">
+                    <span className="workspace-icon"><Icon name="document" size={22} /></span>
+                    <div>
+                      <h2>{guideMode === 'notes' ? 'Study notes' : 'Teaching handout'}</h2>
+                      <p className="eyebrow">Document workspace</p>
+                      <p className="hint">{guideMode === 'notes' ? 'A concise, readable revision document built from your source material.' : 'A complete unit-by-unit handout with lessons, examples and revision support.'}</p>
+                    </div>
                   </div>
                   <div className="segmented" role="tablist" aria-label="Study guide mode">
                     <button type="button" role="tab" aria-selected={guideMode === 'notes'} className={guideMode === 'notes' ? 'on' : ''} onClick={() => setGuideMode('notes')}>Notes</button>
@@ -962,7 +988,13 @@ export default function App() {
 
               {tab === 'guide' && guideMode === 'notes' && (
                 <section>
-                  {!notes && <Empty ready={sourceReady} what="study notes" />}
+                  {busy === 'notes' && (
+                    <div className="empty-state guide-state" role="status">
+                      <span className="guide-spinner" aria-hidden="true" />
+                      <div><strong>Writing study notes…</strong><p>Exam Studio is working through your source material.</p></div>
+                    </div>
+                  )}
+                  {!notes && busy !== 'notes' && <Empty ready={sourceReady} what="study notes" />}
                   {notes && <NotesView notes={notes}
                     onSave={() => save('notes', notes)}
                     onWord={() => run('export', () => download('/export/notes-docx', { notes }, 'Study_Notes.docx'))}
@@ -1071,20 +1103,22 @@ export default function App() {
 
             <h3>Existing tokens</h3>
             {tokens.length === 0 ? <p className="hint">No tokens yet. Create one above.</p> : (
-              <table className="handout-table">
-                <thead><tr><th>Name</th><th>Scopes</th><th>Created</th><th>Revoked</th><th></th></tr></thead>
-                <tbody>
-                  {tokens.map((t) => (
-                    <tr key={t.id}>
-                      <td>{t.name}</td>
-                      <td><span className="mono">{Array.isArray(t.scopes) ? t.scopes.join(', ') : (t.scopes || '')}</span></td>
-                      <td>{t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}</td>
-                      <td>{t.revoked ? <span className="warn">revoked</span> : 'active'}</td>
-                      <td>{!t.revoked && <button className="link danger" onClick={() => revokeToken(t.id)}>Revoke</button>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="table-scroll" role="region" aria-label="Existing API tokens table" tabIndex={0}>
+                <table className="handout-table">
+                  <thead><tr><th>Name</th><th>Scopes</th><th>Created</th><th>Revoked</th><th></th></tr></thead>
+                  <tbody>
+                    {tokens.map((t) => (
+                      <tr key={t.id}>
+                        <td>{t.name}</td>
+                        <td><span className="mono">{Array.isArray(t.scopes) ? t.scopes.join(', ') : (t.scopes || '')}</span></td>
+                        <td>{t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}</td>
+                        <td>{t.revoked ? <span className="warn">revoked</span> : 'active'}</td>
+                        <td>{!t.revoked && <button className="link danger" onClick={() => revokeToken(t.id)}>Revoke</button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
             {/*
               Public demo connector card: a no-auth MCP endpoint for visitors who want to try
@@ -1130,7 +1164,7 @@ function PasswordRules({ value }) {
 function Empty({ ready, what }) {
   return (
     <div className="empty-state" role="status">
-      <span className="empty-mark" aria-hidden="true">✦</span>
+      <span className="empty-mark"><Icon name="document" size={21} /></span>
       <div>
         <strong>{ready ? `Ready to make ${what}` : `Start with your source notes`}</strong>
         <p>{ready ? 'Use the generate action in your source panel or above. Your existing document stays here until the new one is ready.' : `Add or paste your course notes in the source panel, then come back to make ${what}.`}</p>
@@ -1460,40 +1494,46 @@ function SectionsExamView({ exam, setExam, target, project, busy, run, onSave })
 
 
 function NotesView({ notes, onSave, onWord, onCopy, onRegenerate, onOpenLibrary, savedId, saving, busy }) {
+  const preview = useRef(null);
   const rich = isNotesDocument(notes);
   const validation = useMemo(() => (rich ? validateNotes(notes) : null), [notes, rich]);
   const disabled = !!busy || saving;
   const saveLabel = savedId ? 'Saved to Library' : (saving || busy === 'save') ? 'Saving…' : 'Save to Library';
   return (
     <div className="document-shell">
+      {notes.demo && <p className="hint">Built-in demo sample, not written from your notes.</p>}
+      <div className="document-preview">
+        <div className="document-sheet" data-theme="light" ref={preview} tabIndex={-1} role="region" aria-label="Study notes preview">
+          {rich ? (
+            validation.ok ? <NotesReader doc={notes} /> : (
+              <div className="banner error" role="alert">
+                <strong>This notes document cannot be displayed.</strong>
+                <ul>{validation.errors.slice(0, 12).map((error, index) => <li key={index}><code>{error.path || '(root)'}</code> — {error.message}</li>)}</ul>
+              </div>
+            )
+          ) : (
+            <>
+              <h2 className="doc">{notes.title}</h2>
+              {(notes.sections || []).map((s, i) => (
+                <article key={i} className="note">
+                  <h3>{s.topic}</h3>
+                  <ul>{(s.keyPoints || []).map((k, j) => <li key={j}>{k}</li>)}</ul>
+                  {s.example && <p className="remember"><strong>Remember:</strong> {s.example}</p>}
+                </article>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
       <div className="bar wrap doc-actions" aria-label="Document actions">
-        <button className="primary" disabled={disabled || (rich && !validation.ok)} onClick={onWord}>Download Word</button>
-        <button disabled={disabled} onClick={onCopy}>Copy notes</button>
-        <button disabled={disabled} onClick={() => window.print()}>Print</button>
-        <button className="primary" disabled={disabled || !!savedId} onClick={onSave}>{saveLabel}</button>
+        <button type="button" className="primary" onClick={() => preview.current?.focus()}><Icon name="eye" size={17} /> View notes</button>
+        <button disabled={disabled || (rich && !validation.ok)} onClick={onWord}><Icon name="download" size={16} /> Download Word</button>
+        <button disabled={disabled} onClick={() => window.print()}><Icon name="print" size={16} /> Print</button>
+        <button disabled={disabled} onClick={onCopy}><Icon name="copy" size={16} /> Copy notes</button>
+        <button disabled={disabled || !!savedId} onClick={onSave}><Icon name="bookmark" size={16} /> {saveLabel}</button>
         {savedId && <button disabled={disabled} onClick={onOpenLibrary}>View in Library</button>}
         <button disabled={disabled} onClick={onRegenerate}>Write a new version</button>
       </div>
-      {notes.demo && <p className="hint">Built-in demo sample, not written from your notes.</p>}
-      {rich ? (
-        validation.ok ? <NotesReader doc={notes} /> : (
-          <div className="banner error" role="alert">
-            <strong>This notes document cannot be displayed.</strong>
-            <ul>{validation.errors.slice(0, 12).map((error, index) => <li key={index}><code>{error.path || '(root)'}</code> — {error.message}</li>)}</ul>
-          </div>
-        )
-      ) : (
-        <>
-          <h2 className="doc">{notes.title}</h2>
-          {(notes.sections || []).map((s, i) => (
-            <article key={i} className="note">
-              <h3>{s.topic}</h3>
-              <ul>{(s.keyPoints || []).map((k, j) => <li key={j}>{k}</li>)}</ul>
-              {s.example && <p className="remember"><strong>Remember:</strong> {s.example}</p>}
-            </article>
-          ))}
-        </>
-      )}
     </div>
   );
 }
@@ -1624,7 +1664,11 @@ function HandoutView({ handout, onSave, onCopy, onRegenerate, onOpenLibrary, sav
         <button disabled={disabled} onClick={onRegenerate}>Write a new version</button>
       </div>
 
-      {handout.units.map((unit) => <HandoutUnit key={unit.number} unit={unit} />)}
+      <div className="document-preview">
+        <div className="document-sheet" data-theme="light">
+          {handout.units.map((unit) => <HandoutUnit key={unit.number} unit={unit} />)}
+        </div>
+      </div>
     </div>
   );
 }

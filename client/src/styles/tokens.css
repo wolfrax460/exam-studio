@@ -8,6 +8,7 @@
   --color-bg: #f4f1ea;
   --color-surface: #fffdf9;
   --color-surface-2: #efe9dd;
+  --color-sidebar: var(--color-surface);
   --color-border: #e2dbcc;
   --color-border-strong: #cfc5b1;
   --color-text: #171a20;
@@ -94,36 +95,36 @@
   --shadow: var(--shadow-md);
 }
 
-[data-theme="dark"] {
-  --color-bg: #101513;
-  --color-surface: #1a211d;
-  --color-surface-2: #222b26;
-  --color-border: #2d3731;
-  --color-border-strong: #3d4a43;
-  --color-text: #eef2ec;
-  --color-text-muted: #9aa7a0;
-  --color-accent: #58b795;
-  --color-accent-hover: #6fc9a9;
+html[data-theme="dark"] {
+  --color-bg: #0b1110;
+  --color-sidebar: #101a18;
+  --color-surface: #16211f;
+  --color-surface-2: #1c2926;
+  --color-border: #2c3b36;
+  --color-border-strong: #42544e;
+  --color-text: #f1f5f3;
+  --color-text-muted: #a6b5b0;
+  --color-accent: #20c997;
+  --color-accent-hover: #14b88a;
   --color-accent-contrast: #07130e;
   --color-success: #63c795;
   --color-warning: #d8a963;
   --color-danger: #f0917f;
   --color-info: #86bce0;
 
-  --paper-bg: #141a17;
-  --paper-surface: #1c2320;
-  --paper-ink: #eef2ec;
-  --paper-ink-2: #cbd4cd;
-  --paper-muted: #96a39c;
-  --paper-border: #313c36;
-  --paper-border-strong: #46534b;
-  --paper-accent-soft: #1e3a2f;
+  --paper-bg: var(--color-bg);
+  --paper-surface: var(--color-surface);
+  --paper-ink: var(--color-text);
+  --paper-ink-2: #d0dcd7;
+  --paper-muted: var(--color-text-muted);
+  --paper-border: var(--color-border);
+  --paper-border-strong: var(--color-border-strong);
+  --paper-accent-soft: #193a30;
   --paper-gold-soft: #342b1b;
   --paper-ok-soft: #1b3428;
   --paper-danger-soft: #3a2220;
   --paper-wash:
-    radial-gradient(900px 460px at 92% -12%, rgba(88, 183, 149, 0.1), transparent 62%),
-    radial-gradient(620px 360px at 0% 0%, rgba(216, 169, 99, 0.06), transparent 60%);
+    radial-gradient(900px 460px at 92% -12%, rgba(32, 201, 151, 0.08), transparent 62%);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 18px 40px -30px rgba(0, 0, 0, 0.85);
@@ -152,29 +153,30 @@
 /* A user who has never touched the toggle follows the operating system. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --color-bg: #101513;
-    --color-surface: #1a211d;
-    --color-surface-2: #222b26;
-    --color-border: #2d3731;
-    --color-border-strong: #3d4a43;
-    --color-text: #eef2ec;
-    --color-text-muted: #9aa7a0;
-    --color-accent: #58b795;
-  --color-accent-hover: #6fc9a9;
+    --color-bg: #0b1110;
+    --color-sidebar: #101a18;
+    --color-surface: #16211f;
+    --color-surface-2: #1c2926;
+    --color-border: #2c3b36;
+    --color-border-strong: #42544e;
+    --color-text: #f1f5f3;
+    --color-text-muted: #a6b5b0;
+    --color-accent: #20c997;
+    --color-accent-hover: #14b88a;
     --color-accent-contrast: #07130e;
     --color-success: #63c795;
     --color-warning: #d8a963;
     --color-danger: #f0917f;
     --color-info: #86bce0;
 
-    --paper-bg: #141a17;
-    --paper-surface: #1c2320;
-    --paper-ink: #eef2ec;
-    --paper-ink-2: #cbd4cd;
-    --paper-muted: #96a39c;
-    --paper-border: #313c36;
-    --paper-border-strong: #46534b;
-    --paper-accent-soft: #1e3a2f;
+    --paper-bg: var(--color-bg);
+    --paper-surface: var(--color-surface);
+    --paper-ink: var(--color-text);
+    --paper-ink-2: #d0dcd7;
+    --paper-muted: var(--color-text-muted);
+    --paper-border: var(--color-border);
+    --paper-border-strong: var(--color-border-strong);
+    --paper-accent-soft: #193a30;
     --paper-gold-soft: #342b1b;
     --paper-ok-soft: #1b3428;
     --paper-danger-soft: #3a2220;
@@ -188,7 +190,7 @@
     --line: var(--color-border);
     --line-strong: var(--color-border-strong);
     --accent: var(--color-accent);
-  --accent-hover: var(--color-accent-hover);
+    --accent-hover: var(--color-accent-hover);
     --accent-ink: var(--color-accent-contrast);
     --accent-soft: var(--paper-accent-soft);
     --gold: var(--color-warning);

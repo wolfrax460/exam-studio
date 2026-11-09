@@ -63,10 +63,12 @@ export default function PublishOnline({ exam }) {
       {msg && <p className="hint">{msg}</p>}
       {stats && <p className="hint">{stats.submitted} submitted · average {Number(stats.average).toFixed(1)} · highest {stats.highest} · lowest {stats.lowest}</p>}
       {attempts.length > 0 && (
-        <table className="handout-table">
-          <thead><tr><th>Student</th><th>Status</th><th>Score</th><th>Submitted</th></tr></thead>
-          <tbody>{attempts.map((a) => <tr key={a._id}><td>{a.participantName || 'Anonymous'}</td><td>{a.status}</td><td>{a.score?.total ?? '—'} / {a.score?.max ?? '—'}</td><td>{a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}</td></tr>)}</tbody>
-        </table>
+        <div className="table-scroll" role="region" aria-label="Exam attempts table" tabIndex={0}>
+          <table className="handout-table">
+            <thead><tr><th>Student</th><th>Status</th><th>Score</th><th>Submitted</th></tr></thead>
+            <tbody>{attempts.map((a) => <tr key={a._id}><td>{a.participantName || 'Anonymous'}</td><td>{a.status}</td><td>{a.score?.total ?? '—'} / {a.score?.max ?? '—'}</td><td>{a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}</td></tr>)}</tbody>
+          </table>
+        </div>
       )}
       {attempts.length > 0 && attempts[0].score?.perQuestion?.length > 0 && (
         <div className="hint">Open an attempt to override marks:
