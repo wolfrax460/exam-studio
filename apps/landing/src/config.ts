@@ -11,9 +11,11 @@ export const config = {
     contact: 'wolfras87@gmail.com'  },
   nav: [
     { id: 'features', label: 'Features' },
-    { id: 'how', label: 'How it works' },
-    { id: 'free', label: 'Free' },
-    { id: 'ai-tools', label: 'AI tools' },
+    { id: 'how', label: 'How It Works' },
+    { id: 'study-guide', label: 'Study Guide' },
+    { id: 'paper-studio', label: 'Paper Studio' },
+    { id: 'online-exams', label: 'Online Exams' },
+    { id: 'ai-tools', label: 'AI Tools' },
     { id: 'desktop', label: 'Desktop' },
     { id: 'faq', label: 'FAQ' }
   ],
@@ -48,14 +50,17 @@ export const config = {
   },
   desktopReleasesUrl: 'https://github.com/wolfrax460/exam-studio/releases',
   faq: [
-    { q: 'Where are my notes stored?', a: 'Library notes are stored per-account on your server. Notes sent to the AI endpoint follow that endpoint policy; we do not log note content.' },
-    { q: 'Is it really free?', a: 'Yes. Exam Studio is free for everyone. A fair-use daily generation limit applies to the built-in AI; users with their own model/API key are not limited by it.' },
-    { q: 'What file types can I import/export?', a: 'Import pasted text; export Word, PDF and CSV; handwriting recognition is coming soon.' },
-    { q: 'What is the daily limit and when does it reset?', a: 'The built-in service allows a fixed number of generations per day, read from the server, and resets at 00:00 Africa/Kigali.' },
-    { q: 'What happens when I reach the limit?', a: 'You will see a friendly daily_limit_reached message with the reset time; you can still export and browse saved notes.' },
-    { q: 'Can I work offline?', a: 'The desktop app runs locally; generation still needs a configured AI endpoint unless your model runs locally.' },
-    { q: 'Do exams have marking schemes?', a: 'Yes — every exam is generated with a separate marking scheme you can print or hide.' },
-    { q: 'Can I get more?', a: 'Configure your own model/API key, or email wolfras87@gmail.com for school or class use.' }
+    { q: 'What is Exam Studio?', a: 'A teaching workspace for building study notes, handouts, assessment papers, and revision cards from course material.' },
+    { q: 'How do I generate study notes?', a: 'Open Study Guide, upload or paste source notes, choose a module and level if useful, then select Generate Study Notes. Review the result before sharing it.' },
+    { q: 'Can I create examination papers?', a: 'Yes. Paper Studio supports several question types, marks, and a separate marking scheme.' },
+    { q: 'Does Exam Studio support online exams?', a: 'Yes. Publish a paper to create a student link. You can set a timer, attempt limits, and when students see results.' },
+    { q: 'Can I download handouts?', a: 'Yes. The Handout workspace supports Word and PDF exports.' },
+    { q: 'Can I save generated materials?', a: 'Yes. Your account’s Library stores study notes, handouts, examination papers and flashcards and lets you open them again.' },
+    { q: 'How does the Question Bank work?', a: 'Use Paper Studio to create, search, and reuse questions. The current bank and module workspace store their data in this browser.' },
+    { q: 'What AI models are supported?', a: 'The provider list includes Claude, OpenAI, DeepSeek, OpenRouter, NVIDIA and Ollama options. Availability depends on your server and account configuration.' },
+    { q: 'Is there a desktop application?', a: 'Yes. The Desktop section shows the Windows and Linux releases and setup instructions. It connects to a configured server for online features.' },
+    { q: 'Is institution management available?', a: 'Personal teaching workspaces are available. Institution workspace foundations are in development. The roadmap separates current features from planned school management.' },
+    { q: 'How do I get started?', a: 'Open Exam Studio, sign in or create an account, and add your first source material in Study Guide.' }
   ] as FaqItem[],
   aiTools: {
     title: 'API & MCP — coming soon',

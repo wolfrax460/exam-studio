@@ -8,7 +8,7 @@ export function prefersDark() {
 export function useTheme() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try { const s = localStorage.getItem(KEY); if (s === 'dark' || s === 'light') return s; } catch {}
-    return prefersDark() ? 'dark' : 'light';
+    return 'dark';
   });
   useEffect(() => {
     try { localStorage.setItem(KEY, theme); } catch {}

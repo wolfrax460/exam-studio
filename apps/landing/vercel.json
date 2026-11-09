@@ -10,7 +10,7 @@
     { "source": "/assets/:path*", "destination": "https://examstudio.duckdns.org/assets/:path*" },
     { "source": "/api/:path*", "destination": "https://examstudio.duckdns.org/api/:path*" },
     { "source": "/downloads/:path*", "destination": "https://examstudio.duckdns.org/downloads/:path*" },
-    { "source": "/((?!api|app|admin|assets|downloads).*)", "destination": "/index.html" }
+    { "source": "/((?!api|app|admin|assets|downloads|images).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
