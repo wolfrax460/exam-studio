@@ -2,7 +2,9 @@
 // These are the flows the app's login screen depends on.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { bootApi, call, dropTestDatabase, makeUser, TEST_MONGO } from './helpers.js';
+import User from '../lib/models/User.js';
 
 let api;
 
@@ -14,6 +16,30 @@ before(async () => {
 after(async () => {
   await api?.close();
   await dropTestDatabase();
+});
+
+describe('password recovery', () => {
+  it('returns the same response for known and unknown addresses', async () => {
+    const { email } = await makeUser(api.base);
+    const request = (address) => call(api.base, '/api/auth/forgot-password', { method: 'POST', body: { email: address } });
+    const known = await request(email);
+    assert.equal(known.status, 200);
+    assert.deepEqual(await request('unknown-recovery@example.com'), known);
+    assert.equal(typeof (await User.findOne({ email }).lean()).passwordResetTokenHash, 'string');
+  });
+
+  it('consumes a reset token only once, and invalidates older sessions', async () => {
+    const user = await makeUser(api.base);
+    const token = crypto.randomBytes(32).toString('hex');
+    const digest = crypto.createHash('sha256').update(token).digest('hex');
+    await User.updateOne({ email: user.email }, { passwordResetTokenHash: digest, passwordResetExpires: new Date(Date.now() + 60_000) });
+    const password = 'NewPassw0rd';
+    const reset = () => call(api.base, '/api/auth/reset-password', { method: 'POST', body: { token, password } });
+    const outcomes = await Promise.all([reset(), reset()]);
+    assert.deepEqual(outcomes.map(({ status }) => status).sort(), [200, 400]);
+    assert.equal((await call(api.base, '/api/library', { token: user.token })).status, 401);
+    assert.equal((await call(api.base, '/api/auth/login', { method: 'POST', body: { email: user.email, password } })).status, 200);
+  });
 });
 
 describe('health', () => {

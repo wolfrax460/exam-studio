@@ -12,8 +12,16 @@ export async function register({ email, password, name }) {
   return post('/api/auth/register', { email, password, name }, 'Could not create your account.');
 }
 
-export async function login({ email, password }) {
-  return post('/api/auth/login', { email, password }, 'Could not sign you in.');
+export async function login({ email, password, totpCode }) {
+  return post('/api/auth/login', { email, password, totpCode }, 'Could not sign you in.');
+}
+
+export function requestPasswordReset(email) {
+  return post('/api/auth/forgot-password', { email }, 'Could not request a password reset.');
+}
+
+export function resetPassword(token, password) {
+  return post('/api/auth/reset-password', { token, password }, 'Could not reset your password.');
 }
 
 async function post(path, body, fallbackMessage) {

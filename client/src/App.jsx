@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, del, download } from './api.js';
-import { login, logout, register, currentUser, setSession, clearSession } from './auth.js';
+import { logout, currentUser, setSession, clearSession } from './auth.js';
 import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, validateHandout, handoutStats, estimateHandoutPages, isSectionsExam } from '../../shared/format.js';
 import { validateNotes } from '../../shared/notes-format.js';
 import Settings from './Settings.jsx';
 import Admin from './Admin.jsx';
+import Auth from './Auth.jsx';
 import Agents from './Agents.jsx';
 import TakeExam from './TakeExam.jsx';
 import PublishOnline from './PublishOnline.jsx';
@@ -62,7 +63,6 @@ function cleanModuleName(name) {
     .trim()
     .slice(0, 80);
 }
-const BLANK_FIELDS = { email: '', password: '', name: '' };
 
 export default function App() {
   const [health, setHealth] = useState(null);
@@ -117,10 +117,14 @@ export default function App() {
   const [structureSelected, setStructureSelected] = useState([]); // selected module/LO/unit indices
   const [structureMode, setStructureMode] = useState('none'); // 'none', 'library', 'pasted'
 
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
-  const [authFields, setAuthFields] = useState(BLANK_FIELDS);
-  const [authBusy, setAuthBusy] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetToken') || '');
+
+  useEffect(() => {
+    if (!resetToken) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('resetToken');
+    window.history.replaceState(window.history.state, '', url);
+  }, [resetToken]);
 
   const [examOpts, setExamOpts] = useState({
     totalMarks: 100,
@@ -154,7 +158,6 @@ export default function App() {
   useEffect(() => {
     const onSignedOut = () => {
       setUser(null);
-      setAuthMode('login');
       setError('Your session ended. Please sign in again.');
     };
     window.addEventListener('exam-studio:signed-out', onSignedOut);
@@ -268,38 +271,19 @@ export default function App() {
   }
 
   // ---------------------------------------------------------------- auth actions
-  const switchMode = (mode) => {
-    setAuthMode(mode);
+  function acceptSession(session, signup) {
+    setSession(session);
+    setUser(session.user);
     setError('');
-    setAuthFields(BLANK_FIELDS);
-  };
+    flash(signup ? 'Account created' : 'Signed in');
+    get('/health').then(setHealth).catch(() => {});
+  }
 
-  async function handleAuth(e) {
-    e.preventDefault();
-    const email = authFields.email.trim();
-    if (!email) return setError('Enter your email address.');
-    if (!authFields.password) return setError('Enter your password.');
-    if (authMode === 'register') {
-      if (!authFields.name.trim()) return setError('Enter your name.');
-      const missing = PASSWORD_RULES.filter((rule) => !rule.test(authFields.password)).map((rule) => rule.label.toLowerCase());
-      if (missing.length) return setError(`Your password needs ${missing.join(', ')}.`);
-      if (authFields.password.length > 72) return setError('Your password must be 72 characters or fewer.');
-    }
-
-    setError('');
-    setAuthBusy(authMode);
-    try {
-      const call = authMode === 'register' ? register : login;
-      const { token, user: signedIn } = await call({ email, password: authFields.password, name: authFields.name.trim() });
-      setSession({ token, user: signedIn });
-      setUser(signedIn);
-      setAuthFields(BLANK_FIELDS);
-      flash(authMode === 'register' ? 'Account created' : 'Signed in');
-      get('/health').then(setHealth).catch(() => {});
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAuthBusy('');
+  function exitRecovery(completed) {
+    setResetToken('');
+    if (completed) {
+      clearSession();
+      setUser(null);
     }
   }
 
@@ -724,7 +708,13 @@ export default function App() {
     return <TakeExam shareCode={window.location.pathname.split('/').filter(Boolean)[1]} />;
   }
   if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
-    return <Admin onExit={() => window.location.assign('/')} />;
+    return <Admin onExit={() => window.location.assign('/app')} />;
+  }
+
+  if (!checking && (!user || resetToken)) {
+    return <Auth theme={theme} toggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
+      notice={error} onDismissNotice={() => setError('')} onSession={acceptSession}
+      resetToken={resetToken} onRecoveryExit={exitRecovery} />;
   }
 
   return (
@@ -733,89 +723,6 @@ export default function App() {
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {checking && <p className="empty">Loading…</p>}
-
-      {/* ---------------------------------------------------------- sign in / register */}
-      {!checking && !user && topBar}
-
-      {!checking && !user && (
-        <div className="auth-container">
-          <form className="auth-box" onSubmit={handleAuth} noValidate>
-            <h2>{authMode === 'register' ? 'Create your account' : 'Sign in'}</h2>
-            <p className="hint auth-intro">
-              {authMode === 'register'
-                ? 'Your library is private to this account.'
-                : 'Use the account you created for this app.'}
-            </p>
-
-            {error && <div className="banner error" role="alert">{error}</div>}
-
-            {authMode === 'register' && (
-              <label className="field">
-                <span>Your name</span>
-                <input
-                  value={authFields.name}
-                  onChange={(e) => setAuthFields((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="Your full name"
-                  autoComplete="name"
-                  maxLength={80}
-                  autoFocus
-                />
-              </label>
-            )}
-
-            <label className="field">
-              <span>Email</span>
-              <input
-                value={authFields.email}
-                onChange={(e) => setAuthFields((f) => ({ ...f, email: e.target.value }))}
-                type="email"
-                placeholder="you@example.com"
-                autoComplete="email"
-                maxLength={254}
-                autoFocus={authMode === 'login'}
-              />
-            </label>
-
-            <label className="field">
-              <span>Password</span>
-              <span className="password-row">
-                <input
-                  value={authFields.password}
-                  onChange={(e) => setAuthFields((f) => ({ ...f, password: e.target.value }))}
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-                  maxLength={72}
-                />
-                <button type="button" className="link" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
-                  {showPassword ? 'Hide' : 'Show'}
-                </button>
-              </span>
-            </label>
-
-            {authMode === 'register' && <PasswordRules value={authFields.password} />}
-
-            <button className="primary auth-submit" type="submit" disabled={!!authBusy}>
-              {authBusy ? 'Please wait…' : authMode === 'register' ? 'Create account' : 'Sign in'}
-            </button>
-
-            <p className="auth-toggle">
-              {authMode === 'register' ? 'Already have an account? ' : 'New here? '}
-              <button type="button" className="auth-link" onClick={() => switchMode(authMode === 'register' ? 'login' : 'register')}>
-                {authMode === 'register' ? 'Sign in' : 'Create an account'}
-              </button>
-            </p>
-          </form>
-
-          {health && (
-            <p className="hint auth-foot">
-              {health.storage?.backend === 'file'
-                ? 'Storing accounts and your library in a local file (no database server found).'
-                : `Storing accounts and your library in ${health.storage?.backend || 'the database'}.`}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* ---------------------------------------------------------- the app */}
       {!checking && user && (
@@ -1141,26 +1048,6 @@ export default function App() {
 }
 
 // ---------------------------------------------------------------- pieces
-const PASSWORD_RULES = [
-  { label: 'At least 8 characters', test: (p) => p.length >= 8 },
-  { label: 'A lowercase letter', test: (p) => /[a-z]/.test(p) },
-  { label: 'An uppercase letter', test: (p) => /[A-Z]/.test(p) },
-  { label: 'A number', test: (p) => /[0-9]/.test(p) },
-];
-
-// Live checklist, so the rule that the server enforces is visible before submitting.
-function PasswordRules({ value }) {
-  return (
-    <ul className="pw-rules">
-      {PASSWORD_RULES.map((rule) => (
-        <li key={rule.label} className={rule.test(value) ? 'ok' : ''}>
-          <span aria-hidden="true">{rule.test(value) ? '✓' : '•'}</span> {rule.label}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function Empty({ ready, what }) {
   return (
     <div className="empty-state" role="status">

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 338" fill="none">
+  <defs>
+    <linearGradient id="paper" x1="150" y1="122" x2="418" y2="274" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#effbf4"/><stop offset="1" stop-color="#b0e5ce"/>
+    </linearGradient>
+    <linearGradient id="cover" x1="115" y1="147" x2="493" y2="299" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35786a"/><stop offset="1" stop-color="#155044"/>
+    </linearGradient>
+    <linearGradient id="card" x1="440" y1="28" x2="570" y2="219" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#183c34"/><stop offset="1" stop-color="#102a24"/>
+    </linearGradient>
+    <radialGradient id="light" cx=".5" cy=".5" r=".5">
+      <stop stop-color="#3dbb91" stop-opacity=".28"/><stop offset="1" stop-color="#3dbb91" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#81daba" opacity=".28"/></pattern>
+  </defs>
+  <ellipse cx="315" cy="225" rx="303" ry="105" fill="url(#light)"/>
+  <path d="M28 114h562v186H28z" fill="url(#dots)" opacity=".6"/>
+  <path d="M46 283h542M91 312h419M58 252h16m-8-8v16M600 154h16m-8-8v16" stroke="#6bc9aa" stroke-opacity=".32" stroke-linecap="round"/>
+  <g transform="rotate(-9 313 213)">
+    <rect x="118" y="135" width="366" height="158" rx="19" fill="#071f19" opacity=".6"/>
+    <path d="M121 130c72-16 131-12 182 10 57-22 112-26 181-10v148c-68-14-127-10-181 8-52-18-115-22-182-8z" fill="url(#cover)" stroke="#57a58e" stroke-width="2"/>
+    <path d="M132 121c66-14 119-9 171 14 53-23 105-28 170-14v146c-65-13-120-9-170 13-49-22-105-26-171-13z" fill="url(#paper)"/>
+    <path d="M303 135v145M144 262c62-10 108-5 159 15 50-20 99-25 158-15" stroke="#5ea78f" stroke-width="2"/>
+    <path d="M158 156c35-3 66 0 98 9m-98 31c39-2 75 2 121 14m-121 5c39-2 75 2 121 14m-121 5c39-2 75 2 121 14M327 164c38-10 74-13 121-9m-121 28c38-10 74-13 121-9" stroke="#4a9981" stroke-opacity=".56" stroke-width="2" stroke-linecap="round"/>
+    <rect x="157" y="169" width="51" height="10" rx="5" fill="#5da58d" opacity=".56"/>
+    <path d="M332 247v-26h23v21m11-2v-35h23v31m11-2v-43h23v41" stroke="#1c9273" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+  <g transform="rotate(8 476 101)">
+    <rect x="407" y="36" width="151" height="154" rx="17" fill="#071f19" opacity=".6"/>
+    <rect x="401" y="27" width="151" height="154" rx="17" fill="url(#card)" stroke="#65c7a8" stroke-opacity=".62"/>
+    <rect x="418" y="44" width="27" height="27" rx="7" fill="#24574a"/>
+    <path d="M427 58l4 4 7-9" stroke="#94f1cb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M455 53h72m-72 10h47" stroke="#a5e6d0" stroke-opacity=".63" stroke-width="2" stroke-linecap="round"/>
+    <path d="M418 85h115" stroke="#4c776c"/>
+    <path d="M432 102h79m-79 19h60m-60 19h72m-72 19h43" stroke="#86beac" stroke-width="2" stroke-linecap="round"/>
+    <path d="M418 102l3 3 5-6m-8 22 3 3 5-6m-8 22 3 3 5-6" stroke="#63ddb0" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="422" cy="159" r="3" stroke="#86beac"/>
+  </g>
+  <path d="M493 274l71-65a6 6 0 0 1 8 8l-71 65-13 4z" fill="#64c9a5" stroke="#b6f0d8" stroke-width="1.5"/>
+  <path d="M557 216l8 8M493 274l8 8" stroke="#226452" stroke-width="2"/>
+  <path d="M88 102v25m-13-13h26M325 69v22m-11-11h22" stroke="#9ce7ca" stroke-opacity=".64" stroke-linecap="round"/>
+  <circle cx="128" cy="77" r="4" fill="#61c6a4"/><circle cx="579" cy="263" r="3" fill="#61c6a4"/>
+</svg>
