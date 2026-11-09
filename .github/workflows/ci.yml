@@ -41,7 +41,9 @@ jobs:
         working-directory: server
         env:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27017
-        run: node --test --test-concurrency=3 --test-timeout=90000 test/
-      - run: npm --prefix client test
+        run: node --test --test-concurrency=3 --test-timeout=90000 test/*.test.js
+      - name: Test client
+        working-directory: client
+        run: node --test test/*.test.js
       - run: npm run build
       - run: npm --prefix apps/landing run build
