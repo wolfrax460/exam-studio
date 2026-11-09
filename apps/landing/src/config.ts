@@ -58,7 +58,7 @@ export const config = {
     { q: 'Can I save generated materials?', a: 'Yes. Your account’s Library stores study notes, handouts, examination papers and flashcards and lets you open them again.' },
     { q: 'How does the Question Bank work?', a: 'Use Paper Studio to create, search, and reuse questions. The current bank and module workspace store their data in this browser.' },
     { q: 'What AI models are supported?', a: 'The provider list includes Claude, OpenAI, DeepSeek, OpenRouter, NVIDIA and Ollama options. Availability depends on your server and account configuration.' },
-    { q: 'Is there a desktop application?', a: 'Yes. The Desktop section shows the Windows and Linux releases and setup instructions. It connects to a configured server for online features.' },
+    { q: 'Is there a desktop application?', a: 'Yes. The Desktop section lists the current downloads and setup instructions. The desktop app runs its own local workspace.' },
     { q: 'Is institution management available?', a: 'Personal teaching workspaces are available. Institution workspace foundations are in development. The roadmap separates current features from planned school management.' },
     { q: 'How do I get started?', a: 'Open Exam Studio, sign in or create an account, and add your first source material in Study Guide.' }
   ] as FaqItem[],

@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    # MongoDB 8.0 cannot start on the 6.19 kernel used by the Ubuntu 24.04 runner.
+    runs-on: ubuntu-22.04
     services:
       mongo:
         image: mongo:8.0
@@ -40,7 +41,9 @@ jobs:
         working-directory: server
         env:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27017
-        run: node --test --test-concurrency=3 --test-timeout=90000 test/
-      - run: npm --prefix client test
+        run: node --test --test-concurrency=3 --test-timeout=90000 test/*.test.js
+      - name: Test client
+        working-directory: client
+        run: node --test test/*.test.js
       - run: npm run build
       - run: npm --prefix apps/landing run build

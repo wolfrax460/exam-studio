@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
+import { config } from '../config';
 import defaultDownloads from '../downloads.json';
 import { DesktopVisual } from './ProductMarketing';
 
 const SERVER_ADDRESS = 'https://examstudio.duckdns.org';
+const OS_LABELS = { windows: 'Windows', linux: 'Linux', mac: 'macOS' } as const;
+type DesktopOS = keyof typeof OS_LABELS;
 
 type Platform = {
-  os: 'windows' | 'linux' | 'mac';
+  os: DesktopOS;
   status: 'available' | 'coming-soon';
   file: string | null;
   label: string;
@@ -22,19 +25,29 @@ type Downloads = {
   previousVersions?: { version: string; releaseDate: string; platforms: Platform[] }[];
 };
 
-const toAbs = (u: string | null | undefined) => (!u ? null : (/^https?:\/\//i.test(u) ? u : `https://examstudio.duckdns.org${u}`));
+const bundledDownloads = defaultDownloads as Downloads;
+
+function downloadUrl(platform: Platform) {
+  if (platform.status !== 'available' || !platform.url) return undefined;
+  try {
+    const url = new URL(platform.url, SERVER_ADDRESS);
+    return url.protocol === 'https:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function isPhone(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-function detectOS(): 'windows' | 'linux' | 'mac' | 'other' {
+function detectOS(): DesktopOS {
   const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
   if (ua.includes('win')) return 'windows';
   if (ua.includes('mac')) return 'mac';
   if (ua.includes('linux')) return 'linux';
-  return 'other';
+  return 'windows';
 }
 
 function fmtBytes(n: number | null): string {
@@ -44,36 +57,41 @@ function fmtBytes(n: number | null): string {
 }
 
 export default function Desktop() {
-  const [data, setData] = useState<Downloads | null>(defaultDownloads as any);
-  const [os, setOs] = useState<'windows' | 'linux' | 'mac' | 'other'>('other');
-  const [installTab, setInstallTab] = useState<'windows' | 'linux' | 'mac'>('windows');
+  const [data, setData] = useState(bundledDownloads);
+  const [os] = useState(detectOS);
+  const [installTab, setInstallTab] = useState<DesktopOS>(os);
   const [started, setStarted] = useState<{ name: string; size: string; sha: string } | null>(null);
   const [showPrevious, setShowPrevious] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const phone = isPhone();
 
   useEffect(() => {
-    setOs(detectOS());
-    fetch('https://examstudio.duckdns.org/downloads/downloads.json').then(async (r) => {
-      const ct = r.headers.get('content-type') || '';
-      if (!r.ok || ct.includes('text/html')) throw new Error('bad download source');
-      const j = await r.json();
-      if (Array.isArray(j?.platforms)) return j;
-      throw new Error('bad shape');
-    }).then(setData).catch(() => {});
+    const controller = new AbortController();
+    fetch(`${SERVER_ADDRESS}/downloads/downloads.json`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const manifest: Downloads = await response.json();
+        if (Array.isArray(manifest?.platforms) && typeof manifest.version === 'string'
+          && manifest.platforms.every((platform) => platform && Object.hasOwn(OS_LABELS, platform.os))
+          && manifest.version.localeCompare(bundledDownloads.version, undefined, { numeric: true }) > 0) {
+          setData(manifest);
+        }
+      }).catch(() => {});
+    return () => controller.abort();
   }, []);
 
-  const platformFor = (name: string) => data?.platforms.find((p) => p.os === name) || null;
-  const version = data?.version ?? '0.2.1';
-  const releaseDate = data?.releaseDate ?? '';
-  const windows = platformFor('windows');
-  const linux = platformFor('linux');
-  const mac = platformFor('mac');
-  const recommended = os === 'linux' ? linux : windows;
-  const recommendedUrl = recommended?.status === 'available' ? toAbs(recommended.url) : null;
+  const { platforms, version, releaseDate, whatIsNew, previousVersions } = data;
+  const available = platforms.filter(downloadUrl);
+  const availableNames = [...new Set(available.map(({ os }) => OS_LABELS[os]))];
+  const supported = new Intl.ListFormat('en').format(availableNames);
+  const choices = available.filter((platform) => platform.os === os);
+  const recommended = os === 'mac' ? choices : choices.slice(0, 1);
+  const linuxZip = available.find(({ os, file }) => os === 'linux' && file?.endsWith('.zip'));
+  const hasMac = available.some(({ os }) => os === 'mac');
 
-  const startDownload = (platform: Platform | null) => {
-    if (!platform?.url || !platform.file) return;
+  const startDownload = (platform: Platform) => {
+    if (!platform.file) return;
+    setInstallTab(platform.os);
     setStarted({ name: platform.file, size: fmtBytes(platform.sizeBytes), sha: platform.sha256 || '' });
   };
 
@@ -81,7 +99,7 @@ export default function Desktop() {
     return (
       <section id="desktop" className="section container-x">
         <h2 className="heading mb-3">Desktop app</h2>
-        <p className="sub mb-8">Desktop app is for Windows and Linux. Use the web app on your phone instead.</p>
+        <p className="sub mb-8">Exam Studio is available on {supported}. On your phone, open the web app.</p>
         <div className="card text-center">
           <a href="/app" className="btn btn-primary">Open Exam Studio</a>
         </div>
@@ -92,143 +110,160 @@ export default function Desktop() {
   return (
     <section id="desktop" className="section container-x">
       <h2 className="heading mb-3">Desktop app</h2>
-      <p className="sub mb-8">Download Exam Studio for Windows or Linux. Connect it to your server to use generation and online workflows.</p>
+      <p className="sub mb-8">Download Exam Studio for {supported} and use the teaching workspace in its own desktop window.</p>
       <DesktopVisual />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <span className="px-3 py-1 rounded-full bg-green-500/15 text-green-400 text-sm border border-green-500/30">Version {version}</span>
-          <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-sm border border-amber-500/30">Beta</span>
+            <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-sm border border-amber-500/30">Beta</span>
             <span className="text-sm opacity-70">{releaseDate}</span>
           </div>
-          <h3 className="text-xl font-semibold mb-3">Download for {os === 'mac' ? 'Mac' : os === 'linux' ? 'Linux' : 'Windows'}</h3>
-          <p className="text-sm opacity-75 mb-3">{data?.whatIsNew || 'Desktop build hosted on the same domain.'}</p>
+          <h3 className="text-xl font-semibold mb-3">Download for {OS_LABELS[os]}</h3>
+          <p className="text-sm opacity-75 mb-3">{whatIsNew}</p>
 
-          {os !== 'mac' && recommendedUrl ? (
-            <a
-              href={recommendedUrl}
-              download={recommended?.file || undefined}
-              onClick={() => startDownload(recommended)}
-              className="btn btn-primary w-full"
-            >
-              Download {os === 'linux' ? `Linux package (${fmtBytes(linux?.sizeBytes ?? null)})` : `Windows installer (${fmtBytes(windows?.sizeBytes ?? null)})`}
-            </a>
-          ) : <p className="text-sm">{os === 'mac' ? 'Mac: coming soon' : 'A download is currently unavailable for this platform.'}</p>}
-
-          {mac?.status === 'coming-soon' ? null : null}
-
-          {recommendedUrl && os !== 'mac' && <p className="text-xs mt-3 opacity-70">
-            If the download did not start, <a className="underline" href={recommendedUrl} download>try again</a>.
-          </p>}
+          {recommended.length ? (
+            <div className="grid gap-2">
+              {recommended.map((platform) => (
+                <a key={platform.file} href={downloadUrl(platform)} download={platform.file ?? undefined}
+                  onClick={() => startDownload(platform)} className="btn btn-primary w-full">
+                  {platform.label} · {fmtBytes(platform.sizeBytes)}
+                </a>
+              ))}
+            </div>
+          ) : <p className="text-sm">A download is currently unavailable for this platform.</p>}
 
           {started ? (
-            <div className="mt-4 p-4 rounded-xl border border-[color:var(--c-line)]">
+            <div role="status" className="mt-4 p-4 rounded-xl border border-[color:var(--c-line)]">
               <p className="font-semibold mb-2">Download started: {started.name}</p>
               <p className="text-sm mb-1">Size: {started.size}</p>
               <p className="text-sm mb-1 break-all">SHA-256: {started.sha}</p>
-              <button className="btn btn-small btn-ghost" onClick={() => navigator.clipboard.writeText(started.sha)}>Copy</button>
+              <button className="btn btn-small btn-ghost" onClick={() => navigator.clipboard.writeText(started.sha)}>Copy SHA-256</button>
               <a href="#desktop-install" className="btn btn-small btn-ghost ml-2">Next: install guide</a>
-              <p className="text-xs mt-3 opacity-70">Mac support is still on the way. <a className="underline" href="mailto:wolfras87@gmail.com">Notify me when ready</a></p>
             </div>
           ) : null}
 
-          <h4 className="font-semibold mt-5 mb-2">Platforms</h4>
+          <h4 className="font-semibold mt-5 mb-2">All downloads</h4>
           <table className="w-full text-sm mb-4">
-            <thead><tr className="opacity-70"><th className="text-left py-1">Platform</th><th className="text-left py-1">Status</th><th className="text-right py-1">Size</th></tr></thead>
+            <thead><tr className="opacity-70"><th scope="col" className="text-left py-1">Package</th><th scope="col" className="text-right py-1">Size</th></tr></thead>
             <tbody>
-              <tr><td className="py-1">Windows</td><td className="py-1">{windows?.status === 'available' ? 'Available' : 'Coming soon'}</td><td className="py-1 text-right">{fmtBytes(windows?.sizeBytes ?? null)}</td></tr>
-              <tr><td className="py-1">Linux</td><td className="py-1">{linux?.status === 'available' ? 'Available' : 'Coming soon'}</td><td className="py-1 text-right">{fmtBytes(linux?.sizeBytes ?? null)}</td></tr>
-              <tr><td className="py-1">Mac</td><td className="py-1">Coming soon</td><td className="py-1 text-right">-</td></tr>
+              {available.map((platform) => (
+                <tr key={platform.file} className="border-t border-[color:var(--c-line)]">
+                  <td className="py-2 pr-3">
+                    <a className="underline underline-offset-4" href={downloadUrl(platform)} download={platform.file ?? undefined}
+                      onClick={() => startDownload(platform)}>{platform.label}</a>
+                  </td>
+                  <td className="py-2 text-right whitespace-nowrap">{fmtBytes(platform.sizeBytes)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
+          <a className="text-sm underline underline-offset-4" href={config.desktopReleasesUrl}>Release notes and checksums</a>
 
-          <div className="text-sm">
-            <button onClick={() => setShowPrevious((s) => !s)} className="btn btn-small btn-ghost">
+          {!!previousVersions?.length && <div className="text-sm mt-3">
+            <button aria-expanded={showPrevious} onClick={() => setShowPrevious((s) => !s)} className="btn btn-small btn-ghost">
               {showPrevious ? 'Hide previous versions' : 'Previous versions'}
             </button>
-            {showPrevious && (data?.previousVersions?.length || 0) > 0 ? (
+            {showPrevious && (
               <ul className="mt-2 space-y-1">
-                {data!.previousVersions!.map((v) => (
-                  <li key={v.version}>{v.version} - {v.releaseDate}</li>
+                {previousVersions.map((v) => (
+                  <li key={v.version}>
+                    <span className="font-semibold">{v.version} · {v.releaseDate}</span>
+                    <ul className="pl-4">
+                      {v.platforms.filter(downloadUrl).map((platform) => (
+                        <li key={platform.file}><a className="underline" href={downloadUrl(platform)} download={platform.file ?? undefined}>
+                          {platform.label}
+                        </a></li>
+                      ))}
+                    </ul>
+                  </li>
                 ))}
               </ul>
-            ) : null}
-          </div>
+            )}
+          </div>}
         </div>
 
         <div className="card">
           <h3 className="text-xl font-semibold mb-3">System requirements</h3>
           <ul className="space-y-2 text-sm">
-            <li>Windows 10 or later, or Linux with a supported desktop environment</li>
+            <li>Windows 10 or later (x64)</li>
+            <li>Linux x64 with a supported desktop environment</li>
+            {hasMac && <li>macOS 13 Ventura or later (Apple silicon or Intel)</li>}
             <li>At least 8 GB RAM</li>
             <li>1 GB disk space</li>
-            <li>Internet access to this server</li>
+            <li>Internet access for cloud AI providers</li>
           </ul>
 
           <h3 className="text-xl font-semibold mt-5 mb-2">First-time setup</h3>
-          <p className="text-sm opacity-80">
-            Server address: <code>{SERVER_ADDRESS}</code>
-            <button className="btn btn-small btn-ghost ml-2" onClick={() => navigator.clipboard.writeText(SERVER_ADDRESS)}>Copy</button>
-          </p>
           <ol className="list-decimal pl-5 text-sm mt-2 space-y-1">
-            <li>Download the installer or package.</li>
-            <li>Install or extract it.</li>
-            <li>Launch Exam Studio.</li>
-            <li>Enter the server address shown above, sign in, add notes, generate, and export.</li>
+            <li>Download the package for your computer and follow the install guide.</li>
+            <li>Launch Exam Studio and sign in or create a local account.</li>
+            <li>Choose an AI provider in Settings, then add source material in Study Guide.</li>
           </ol>
+          <p className="mt-3 text-sm opacity-80">The desktop app keeps its own local account and library. To use your hosted workspace, <a className="underline" href="/app">open the web app</a>.</p>
         </div>
       </div>
 
       <div id="desktop-install" className="card mb-6">
         <h3 className="heading text-lg mb-4">Install guide</h3>
-        <div className="flex gap-2 mb-4">
-          <button className={`btn btn-small ${installTab === 'windows' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setInstallTab('windows')}>Windows</button>
-          <button className={`btn btn-small ${installTab === 'linux' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setInstallTab('linux')}>Linux</button>
-          <button className={`btn btn-small ${installTab === 'mac' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setInstallTab('mac')}>Mac (coming soon)</button>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {(Object.keys(OS_LABELS) as DesktopOS[]).map((platform) => (
+            <button key={platform} aria-pressed={installTab === platform}
+              className={`btn btn-small ${installTab === platform ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setInstallTab(platform)}>{OS_LABELS[platform]}</button>
+          ))}
         </div>
 
         {installTab === 'windows' && (
-          <ol className="space-y-4 text-sm">
-            <li className="flex items-start gap-3"><span className="font-bold">1.</span><span>Download the Windows installer and run it.</span></li>
-            <li className="flex items-start gap-3"><span className="font-bold">2.</span><span>If Windows shows "Windows protected your PC", click More info, then Run anyway. The app is not code-signed yet.</span></li>
-            <li className="flex items-start gap-3"><span className="font-bold">3.</span><span>Open Exam Studio. If needed, paste the server address and sign in.</span></li>
-          </ol>
+          <ul className="space-y-2 text-sm">
+            <li>Run the setup executable and follow the installer, or open the portable executable directly.</li>
+            <li>The Windows builds are unsigned, so SmartScreen may ask you to confirm. Verify the SHA-256 first.</li>
+          </ul>
         )}
         {installTab === 'linux' && (
-          <ol className="space-y-4 text-sm">
-            <li className="flex items-start gap-3"><span className="font-bold">1.</span><span><code>unzip Exam-Studio-0.2.1.zip</code></span></li>
-            <li className="flex items-start gap-3"><span className="font-bold">2.</span><span><code>chmod +x "Exam Studio"</code></span></li>
-            <li className="flex items-start gap-3"><span className="font-bold">3.</span><span><code>./Exam Studio</code></span></li>
+          <ul className="space-y-2 text-sm">
+            {available.some(({ file }) => file?.endsWith('.AppImage')) && (
+              <li><strong>AppImage</strong> — Mark the file executable in your file manager, then open it. AppImage requires FUSE.</li>
+            )}
+            {available.some(({ file }) => file?.endsWith('.deb')) && (
+              <li><strong>Debian package</strong> — Open the downloaded <code>.deb</code> in your package installer on Debian or Ubuntu.</li>
+            )}
+            {linuxZip && <li><strong>Portable ZIP</strong> — Extract <code>{linuxZip.file}</code> and run <code>./exam-studio</code> from the extracted folder.</li>}
+          </ul>
+        )}
+        {installTab === 'mac' && (hasMac ? (
+          <ol className="list-decimal pl-5 space-y-2 text-sm">
+            <li>In Apple menu → About This Mac, check the chip or processor. Choose Apple silicon for Apple M-series chips or Intel for Intel processors.</li>
+            <li>Open the matching <code>.dmg</code> and drag Exam Studio into Applications.</li>
+            <li>The beta uses ad hoc signing and has no Apple notarization. Verify the SHA-256 before opening it. See <a className="underline" href="https://support.apple.com/en-us/102445">Apple’s guidance on Gatekeeper alerts</a>.</li>
           </ol>
-        )}
-        {installTab === 'mac' && (
-          <p className="text-sm opacity-80">Mac build is coming soon. <a className="underline" href="mailto:wolfras87@gmail.com">Notify me when ready</a>.</p>
-        )}
+        ) : <p className="text-sm">A download is currently unavailable for macOS.</p>)}
       </div>
 
       <div className="card mb-6">
-        <button onClick={() => setExpanded(expanded === 'verify' ? null : 'verify')} className="flex w-full justify-between items-center font-semibold">
+        <button aria-expanded={expanded === 'verify'} onClick={() => setExpanded(expanded === 'verify' ? null : 'verify')} className="flex w-full justify-between items-center font-semibold">
           <span>Verify your download</span><span>{expanded === 'verify' ? '-' : '+'}</span>
         </button>
         {expanded === 'verify' && (
           <div className="mt-3 text-sm space-y-2">
-            <p>Windows:</p>
-            <code className="block bg-black/30 p-2 rounded">Get-FileHash -Algorithm SHA256 .\\Exam-Studio-Setup-0.2.1.exe</code>
-            <p>Linux:</p>
-            <code className="block bg-black/30 p-2 rounded">sha256sum ./Exam-Studio-0.2.1.zip</code>
-            <p>Compare the result with the SHA-256 shown in the download panel.</p>
+            <p>Replace <code>filename</code> with the downloaded file’s name. Compare the result with the SHA-256 shown when you select a download.</p>
+            <p>Windows PowerShell</p>
+            <code className="block bg-black/30 p-2 rounded break-words">Get-FileHash -Algorithm SHA256 "filename"</code>
+            <p>Linux terminal</p>
+            <code className="block bg-black/30 p-2 rounded break-words">sha256sum "filename"</code>
+            {hasMac && <><p>macOS Terminal</p><code className="block bg-black/30 p-2 rounded break-words">shasum -a 256 "filename"</code></>}
           </div>
         )}
       </div>
 
       <div className="card">
-        <button onClick={() => setExpanded(expanded === 'trouble' ? null : 'trouble')} className="flex w-full justify-between items-center font-semibold">
+        <button aria-expanded={expanded === 'trouble'} onClick={() => setExpanded(expanded === 'trouble' ? null : 'trouble')} className="flex w-full justify-between items-center font-semibold">
           <span>Troubleshooting</span><span>{expanded === 'trouble' ? '-' : '+'}</span>
         </button>
         {expanded === 'trouble' && (
           <div className="mt-3 text-sm space-y-2 opacity-80">
-            <p>If the browser blocks the download, look for browser site settings and retry. If antivirus flags the app, the app is unsigned, so use your own judgment. If the app cannot connect, confirm the server address. To update, download the newest installer. To uninstall, use Add/Remove Programs or delete the extracted folder.</p>
+            <p>If Exam Studio cannot start, open the app’s data folder and check <code>desktop.log</code>. To update, download the newest package for your platform. If you need immediate access, <a className="underline" href="/app">open the web app</a>.</p>
           </div>
         )}
       </div>
