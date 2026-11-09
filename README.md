@@ -38,8 +38,8 @@ npm start            # serves the API and the built app on http://localhost:3001
 npm run desktop       # build the app and open it in an Electron window
 npm run desktop:pack  # build an unpacked app in release/ to smoke-test
 npm run dist:win      # Windows installer + portable .exe (release/)
-npm run dist:mac      # macOS .dmg
-npm run dist:linux    # AppImage + .deb
+npm run dist:mac      # macOS .dmg for the current architecture, on macOS
+npm run dist:linux    # Linux AppImage, .deb and portable .zip
 ```
 
 The desktop app runs the same server inside itself, on `127.0.0.1` only, and keeps your accounts, library, settings, log, update-cache and window position in the app's own data folder — never inside the program files, so an upgrade never loses your work. `Help → Open the data folder` shows you where. `Help → Check for updates…` asks straight away, and the app also checks quietly by itself once every 24 hours.
@@ -47,7 +47,9 @@ The desktop app runs the same server inside itself, on `127.0.0.1` only, and kee
 What is in the build: the app files are packaged as an asar, with `server/` and `shared/` unpacked
 next to it so the MCP (agent) server can be started as a separate process. Windows builds are
 unsigned, so SmartScreen will show "Windows protected your PC" the first time: **More info → Run
-anyway**. To distribute without that warning you need a code-signing certificate.
+anyway**. The macOS builds are ad hoc signed and unnotarized. Use the disk image for your
+processor and check the SHA-256 before opening it. Get installers and setup instructions from
+the [desktop downloads page](https://exams-studio.vercel.app/#desktop).
 
 If the app will not start, look at `desktop.log` in the data folder (`Help → Open the log file`).
 

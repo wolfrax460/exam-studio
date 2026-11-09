@@ -2,73 +2,114 @@ name: Release Exam Studio
 
 on:
   push:
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: "Release tag, e.g. v0.2.1"
-        required: true
+    tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            label: Windows
-            command: npm run dist:win
-            asset_glob: "release/*.{exe,msi,zip}"
-          - os: ubuntu-latest
-            label: Linux
-            command: npm run dist:linux
-            asset_glob: "release/*.{AppImage,deb,rpm,zip}"
-    runs-on: ${{ matrix.os }}
-
+            label: Windows x64
+            id: windows-x64
+            command: npm run dist:win -- --x64 --publish never
+            app: release/win-unpacked/Exam Studio.exe
+            assets: "release/*.exe"
+          - os: ubuntu-24.04
+            label: Linux x64
+            id: linux-x64
+            command: npm run dist:linux -- --x64 --publish never
+            app: release/linux-unpacked/exam-studio
+            assets: |
+              release/*.AppImage
+              release/*.deb
+              release/*.zip
+          - os: macos-15
+            label: macOS Apple silicon
+            id: mac-arm64
+            command: npm run dist:mac -- --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+            app: release/mac-arm64/Exam Studio.app/Contents/MacOS/Exam Studio
+            assets: "release/*-mac-arm64.dmg"
+          - os: macos-15-intel
+            label: macOS Intel
+            id: mac-x64
+            command: npm run dist:mac -- --x64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+            app: release/mac/Exam Studio.app/Contents/MacOS/Exam Studio
+            assets: "release/*-mac-x64.dmg"
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install root and project dependencies
-        run: |
-          npm install
-          npm run setup
-
-      - name: Run test suites
-        run: npm test
-
-      - name: Build web and server assets
-        run: npm run build
-
-      - name: Build desktop packages
-        run: ${{ matrix.command }}
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+      - name: Verify tag matches the desktop version
         env:
-          ELECTRON_CACHE: ${{ github.workspace }}/.electron
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "if ('v' + require('./package.json').version !== process.env.RELEASE_TAG) process.exit(1)"
+      - run: |
+          npm ci
+          npm --prefix server ci --omit=dev
+          npm --prefix client ci
+      - run: ${{ matrix.command }}
+      - name: Smoke-test the packaged desktop app
+        shell: bash
+        env:
+          DESKTOP_EXECUTABLE: ${{ matrix.app }}
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo chown root:root release/linux-unpacked/chrome-sandbox
+            sudo chmod 4755 release/linux-unpacked/chrome-sandbox
+            xvfb-run -a node scripts/smoke-desktop.mjs "$DESKTOP_EXECUTABLE"
+          else
+            node scripts/smoke-desktop.mjs "$DESKTOP_EXECUTABLE"
+          fi
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          name: "Exam Studio ${{ github.event.inputs.tag_name || github.ref_name }}"
-          body_path: "RELEASE_NOTES.md"
-          files: ${{ matrix.asset_glob }}
-          fail_on_unmatched_files: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-```
+          name: desktop-${{ matrix.id }}
+          path: ${{ matrix.assets }}
+          if-no-files-found: error
 
-Wait release notes file fixed `RELEASE_NOTES.md`; but version release notes changing. Could keep current meaningful. We'll create `RELEASE_NOTES.md` generic for 0.2.1. Also workflow manually workflow_dispatch requires `tag_name` input. Tag push path release name uses ref. Good.
-
-But Windows build in GitHub Actions may fail due huge electron package but okay. `npm run dist:win` may invoke electron-builder. User wants "do it" not necessarily workflow-only. We'll likely still push and create release ourselves? Let's add scripts for manual publishing maybe using curl with a token in env. The skill/runbook ensures future. We'll commit.
-
-Create release notes.
+  draft:
+    needs: [quality, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: installers
+          merge-multiple: true
+      - name: Verify release assets and record checksums
+        working-directory: installers
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+        run: |
+          version="${VERSION_TAG#v}"
+          for file in "Exam-Studio-Setup-$version.exe" "Exam-Studio-$version-portable.exe" \
+            "Exam-Studio-$version-linux-x86_64.AppImage" "Exam-Studio-$version-linux-amd64.deb" \
+            "Exam-Studio-$version-linux-x64.zip" "Exam-Studio-$version-mac-arm64.dmg" "Exam-Studio-$version-mac-x64.dmg"; do
+            test -s "$file" || { echo "Missing $file"; exit 1; }
+          done
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS.txt"
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Exam Studio $RELEASE_TAG" \
+            --notes-file RELEASE_NOTES.md installers/* "$RUNNER_TEMP/SHA256SUMS.txt"

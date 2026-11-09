@@ -1,20 +1,11 @@
-# Exam Studio 0.2.1
+# Exam Studio 0.2.3
 
-## Summary
-This release fixes desktop startup and makes update tracking automatic for the desktop app.
+## Updated desktop workspace
 
-## Bug fixes
-- Fixed `waitForServer is not defined` during Electron startup.
-- Rebuilt the packaged desktop launch flow so it waits for the embedded server before opening the window.
+- Includes the refreshed navigation, graduation-cap branding, and Study Guide document workspace from the current Exam Studio app.
+- Rebuilds the Windows x64 setup and portable executable and the Linux x64 AppImage, Debian package, and portable ZIP.
+- Adds macOS disk images for Apple silicon and Intel. The app requires macOS 13 Ventura or later.
 
-## New features
-- Version tracking is enabled by default for the desktop app using this repository's GitHub Releases (`wolfrax460/exam-studio`).
-- Incremental app changes continue across the notes library, handout/manual-note, exam editing, export, theme/sidebar UI, cancellation, and diagnostics.
+The Windows executables are unsigned. The macOS apps use ad hoc signing and have no Apple notarization. Compare the SHA-256 of your download with `SHA256SUMS.txt` before opening it.
 
-## Verification
-- Server tests: 177 passing.
-- Client tests: 15 passing.
-- Client build and server syntax checks passed during development.
-
-## Notes
-Download the Windows installer/portable executable or Linux AppImage/.deb from this release rather than repeatedly installing unrelated packages.
+Existing accounts, library documents, and settings on the computer are kept in the Exam Studio data directory.

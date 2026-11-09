@@ -4,16 +4,43 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    services:
+      mongo:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - run: npm run setup
-      - run: npm test
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+            apps/landing/package-lock.json
+      - run: |
+          npm --prefix server ci
+          npm --prefix client ci
+          npm --prefix apps/landing ci
+      - name: Test API against disposable local databases
+        working-directory: server
+        env:
+          TEST_MONGODB_URI: mongodb://127.0.0.1:27017
+        run: node --test --test-concurrency=3 --test-timeout=90000 test/
+      - run: npm --prefix client test
       - run: npm run build
-'
+      - run: npm --prefix apps/landing run build

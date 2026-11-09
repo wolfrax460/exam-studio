@@ -1,6 +1,6 @@
 {
-  "version": "0.2.0",
-  "released": "2026-10-14",
-  "notes": "Study handouts: one lesson per indicative content, with key terms, worked examples, diagrams, a memory sheet, revision questions, a practical task and study tips.",
-  "url": ""
+  "version": "0.2.3",
+  "released": "2026-11-09",
+  "notes": "Refreshed desktop workspace and new macOS downloads for Apple silicon and Intel.",
+  "url": "https://exams-studio.vercel.app/#desktop"
 }
