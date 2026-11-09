@@ -21,10 +21,10 @@ jobs:
           ref: v0.2.3
       - name: Verify successful native builds came from the release tag
         run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq .path)" = ".github/workflows/release.yml"
           gh run view "$BUILD_RUN" --json headSha,headBranch,event,workflowName,jobs |
             jq -e --arg sha "$(git rev-parse HEAD)" --arg tag "$RELEASE_TAG" '
               .headSha == $sha and .headBranch == $tag and .event == "push"
-              and .workflowName == "Release Exam Studio"
               and ([.jobs[] | select((.name | startswith("Build ")) and .conclusion == "success")] | length) == 4
             '
       - uses: actions/download-artifact@v4
