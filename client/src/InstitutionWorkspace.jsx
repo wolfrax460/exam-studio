@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { post, put } from './api.js';
 import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuery } from './AdminData.jsx';
 import { InstitutionPages, institutionTypes } from './Institutions.jsx';
+import Academics from './Academics.jsx';
 import Modal from './ui/Modal.jsx';
 import Icon from './ui/Icon.jsx';
 import brandMark from './assets/exam-studio-mark.svg';
@@ -159,6 +160,13 @@ function Overview({ workspace, openDirectory }) {
   const isAdmin = workspace.role === 'admin';
   return (
     <div className="admin-stack">
+      <section className="admin-panel">
+        <h2>Academic calendar</h2>
+        <dl className="admin-key-values">
+          <div><dt>Academic year</dt><dd>{workspace.academicYear || 'No active academic year'}</dd></div>
+          <div><dt>Current term</dt><dd>{workspace.academicTerm || 'No active term'}</dd></div>
+        </dl>
+      </section>
       <dl className="admin-metric-grid">
         {Object.entries(workspace.counts).map(([role, count]) => (
           <div className="admin-metric" key={role}><div><dt>{roleTotals[role]}</dt><dd>{count}</dd><small>Active memberships</small></div></div>
@@ -187,6 +195,7 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
         <nav className="admin-nav institution-workspace-nav" aria-label="Institution navigation">
           <button type="button" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}><Icon name="dashboard" /> Overview</button>
           <button type="button" aria-current={view === 'directory' ? 'page' : undefined} onClick={() => setView('directory')}><Icon name="user" /> Member directory</button>
+          {workspace && workspace.role !== 'member' && <button type="button" aria-current={view === 'academics' ? 'page' : undefined} onClick={() => setView('academics')}><Icon name="book" /> Academics</button>}
         </nav>
       </aside>
       <main className="admin-main-content">
@@ -197,8 +206,9 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
           {workspace && <span className="admin-badge is-ok">{roles[workspace.role]}</span>}
         </header>
         <LoadState query={overview} name="institution workspace">
-          {workspace && (view === 'overview' ? <Overview workspace={workspace} openDirectory={() => setView('directory')} />
-            : <Directory institutionId={institutionId} isAdmin={workspace.role === 'admin'} onChanged={overview.reload} />)}
+          {workspace && view === 'overview' && <Overview workspace={workspace} openDirectory={() => setView('directory')} />}
+          {workspace && view === 'directory' && <Directory institutionId={institutionId} isAdmin={workspace.role === 'admin'} onChanged={overview.reload} />}
+          {workspace && view === 'academics' && <Academics institutionId={institutionId} isAdmin={workspace.role === 'admin'} onChanged={overview.reload} />}
         </LoadState>
       </main>
     </div>
