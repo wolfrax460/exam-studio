@@ -14,6 +14,7 @@ import AuditLog from './models/AuditLog.js';
 import Setting from './models/Setting.js';
 import LibraryItem from './models/LibraryItem.js';
 import Token from './models/Token.js';
+import { currentVersion } from './version.js';
 
 const mode = async () => { await initStorage(); return storageMode(); };
 
@@ -64,28 +65,40 @@ export function recordAIFailure(err) { aiHealth.lastErrorAt = new Date().toISOSt
 export function getAIHealth() { return { ...aiHealth }; }
 
 function newId() { return new mongoose.Types.ObjectId().toString(); }
+function literalSearch(value) {
+  return new RegExp(value.replace(/[.*+?^{}()|[\]\\$]/g, '\\$&'), 'i');
+}
+
+const USER_FIELDS = 'email name role planId active mustChangePassword overrides totpEnabled emailVerified lastSignInAt createdAt';
+function adminUser(user) {
+  const fields = Object.fromEntries(USER_FIELDS.split(' ').map((key) => [key, user[key]]));
+  return { ...fields, id: String(user.id || user._id), active: user.active !== false };
+}
 
 // ---------------- Users ----------------
-export async function listUsers({ search = '', role = '', page = 1, limit = 20 } = {}) {
+export async function listUsers({ search = '', role = '', status = '', page = 1, limit = 20 } = {}) {
   await initStorage();
   if (storageMode() === 'mongo') {
     const q = {};
-    if (search) q.$or = [{ name: new RegExp(search, 'i') }, { email: new RegExp(search, 'i') }];
+    if (search) q.$or = [{ name: literalSearch(search) }, { email: literalSearch(search) }];
     if (role) q.role = role;
+    if (status) q.active = status === 'disabled' ? false : { $ne: false };
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
-      User.find(q).select('-passwordHash').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      User.find(q).select(USER_FIELDS).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
       User.countDocuments(q),
     ]);
-    return { items: items.map(u => ({ ...u, id: u._id.toString() })), total };
+    return { items: items.map(adminUser), total };
   }
   const store = getFileStore();
   let users = store.users || [];
   if (search) { const s = search.toLowerCase(); users = users.filter(u => (u.name||'').toLowerCase().includes(s) || (u.email||'').toLowerCase().includes(s)); }
   if (role) users = users.filter(u => u.role === role);
+  if (status) users = users.filter(u => (u.active === false) === (status === 'disabled'));
   const total = users.length;
   const skip = (page - 1) * limit;
-  const items = users.slice(skip, skip + limit).map(u => { const { passwordHash, ...rest } = u; return rest; });
+  const items = [...users].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(skip, skip + limit).map(adminUser);
   return { items, total };
 }
 
@@ -93,14 +106,13 @@ export async function getUserById(id) {
   await initStorage();
   if (storageMode() === 'mongo') {
     if (!mongoose.isValidObjectId(id)) return null;
-    const doc = await User.findById(id).select('-passwordHash').lean();
-    return doc ? { ...doc, id: doc._id.toString() } : null;
+    const doc = await User.findById(id).select(USER_FIELDS).lean();
+    return doc ? adminUser(doc) : null;
   }
   const store = getFileStore();
   const u = (store.users || []).find(x => x.id === id);
   if (!u) return null;
-  const { passwordHash, ...rest } = u;
-  return rest;
+  return adminUser(u);
 }
 
 export async function updateUser(id, patch) {
@@ -113,8 +125,8 @@ export async function updateUser(id, patch) {
     if (patch.overrides !== undefined) update.overrides = patch.overrides;
     if (patch.passwordHash) update.passwordHash = patch.passwordHash;
     if (patch.forceSignOut) update.$inc = { tokenVersion: 1 };
-    const doc = await User.findByIdAndUpdate(id, update, { new: true }).select('-passwordHash').lean();
-    return doc ? { ...doc, id: doc._id.toString() } : null;
+    const doc = await User.findByIdAndUpdate(id, update, { new: true }).select(USER_FIELDS).lean();
+    return doc ? adminUser(doc) : null;
   }
   const store = getFileStore();
   const u = (store.users || []).find(x => x.id === id);
@@ -125,8 +137,7 @@ export async function updateUser(id, patch) {
   if (patch.passwordHash) u.passwordHash = patch.passwordHash;
   if (patch.forceSignOut) u.tokenVersion = (u.tokenVersion || 0) + 1;
   saveFileStore();
-  const { passwordHash, ...rest } = u;
-  return rest;
+  return adminUser(u);
 }
 
 export async function deleteUser(id) {
@@ -273,15 +284,16 @@ export async function recordUsage(event) {
   return e;
 }
 
-export async function listUsage({ userId, taskType, page = 1, limit = 50 } = {}) {
+export async function listUsage({ userId, taskType, outcome, page = 1, limit = 50 } = {}) {
   await initStorage();
   if (storageMode() === 'mongo') {
     const q = {};
     if (userId) q.userId = userId;
     if (taskType) q.taskType = taskType;
+    if (outcome) q.success = outcome === 'success';
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
-      UsageEvent.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      UsageEvent.find(q).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
       UsageEvent.countDocuments(q),
     ]);
     return { items: items.map(e => ({ ...e, id: e._id.toString() })), total };
@@ -290,6 +302,7 @@ export async function listUsage({ userId, taskType, page = 1, limit = 50 } = {})
   let events = store.usageEvents || [];
   if (userId) events = events.filter(e => e.userId === userId);
   if (taskType) events = events.filter(e => e.taskType === taskType);
+  if (outcome) events = events.filter(e => e.success === (outcome === 'success'));
   events = [...events].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const total = events.length;
   const skip = (page - 1) * limit;
@@ -298,26 +311,84 @@ export async function listUsage({ userId, taskType, page = 1, limit = 50 } = {})
 
 export async function usageSummary() {
   await initStorage();
-  const since = (days) => new Date(Date.now() - days * 86400000);
+  const day = 86400000;
+  const now = new Date();
+  const since = (days) => new Date(now.getTime() - days * day);
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+  const dates = Array.from({ length: 14 }, (_, i) => new Date(today.getTime() - (13 - i) * day).toISOString().slice(0, 10));
+  const firstDay = new Date(dates[0]);
+  const byDate = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+  function fillDates(rows, key) {
+    const values = new Map(rows.map((row) => [row._id, row[key]]));
+    return dates.map((date) => ({ date, [key]: values.get(date) ?? 0 }));
+  }
   if (storageMode() === 'mongo') {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const [todayCount, weekCount, monthCount, failures] = await Promise.all([
-      UsageEvent.countDocuments({ createdAt: { $gte: today } }),
-      UsageEvent.countDocuments({ createdAt: { $gte: since(7) } }),
-      UsageEvent.countDocuments({ createdAt: { $gte: since(30) } }),
-      UsageEvent.countDocuments({ success: false, createdAt: { $gte: since(30) } }),
+    const [[usage], usersTotal, usersActive, newUsers] = await Promise.all([
+      UsageEvent.aggregate([
+        { $match: { createdAt: { $gte: since(30), $lte: now } } },
+        { $facet: {
+          totals: [{ $group: {
+            _id: null,
+            requestsToday: { $sum: { $cond: [{ $gte: ['$createdAt', today] }, 1, 0] } },
+            requestsWeek: { $sum: { $cond: [{ $gte: ['$createdAt', since(7)] }, 1, 0] } },
+            requestsMonth: { $sum: 1 },
+            failuresMonth: { $sum: { $cond: [{ $eq: ['$success', false] }, 1, 0] } },
+            successesMonth: { $sum: { $cond: [{ $eq: ['$success', true] }, 1, 0] } },
+            reportedTokens: { $sum: '$actualTokens' },
+            tokenReports: { $sum: { $cond: [{ $isNumber: '$actualTokens' }, 1, 0] } },
+          } }],
+          daily: [
+            { $match: { createdAt: { $gte: firstDay } } },
+            { $group: { _id: byDate, requests: { $sum: 1 } } },
+          ],
+          tokens: [
+            { $match: { createdAt: { $gte: firstDay }, actualTokens: { $type: 'number' } } },
+            { $group: { _id: byDate, tokens: { $sum: '$actualTokens' } } },
+            { $sort: { _id: 1 } },
+          ],
+        } },
+      ]),
+      User.countDocuments(),
+      User.countDocuments({ active: { $ne: false } }),
+      User.aggregate([
+        { $match: { createdAt: { $gte: firstDay, $lte: now } } },
+        { $group: { _id: byDate, registrations: { $sum: 1 } } },
+      ]),
     ]);
-    return { requestsToday: todayCount, requestsWeek: weekCount, requestsMonth: monthCount, failuresMonth: failures };
+    const { requestsToday = 0, requestsWeek = 0, requestsMonth = 0, failuresMonth = 0, successesMonth = 0, reportedTokens, tokenReports } = usage.totals[0] || {};
+    return {
+      requestsToday, requestsWeek, requestsMonth, failuresMonth, successesMonth, usersTotal, usersActive,
+      reportedTokens: tokenReports ? reportedTokens : null,
+      daily: fillDates(usage.daily, 'requests'),
+      dailyTokens: usage.tokens.map(({ _id, tokens }) => ({ date: _id, tokens })),
+      userGrowth: fillDates(newUsers, 'registrations'),
+    };
   }
   const store = getFileStore();
-  const events = store.usageEvents || [];
-  const inRange = (d) => new Date(e.createdAt) >= d;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const events = (store.usageEvents || []).filter((event) => {
+    const timestamp = new Date(event.createdAt);
+    return timestamp >= since(30) && timestamp <= now;
+  });
+  const users = store.users || [];
+  const tokenEvents = events.filter((event) => Number.isFinite(event.actualTokens));
+  const onDay = (items, date) => items.filter((item) => String(item.createdAt).slice(0, 10) === date);
+  const sumTokens = (items) => items.reduce((sum, item) => sum + item.actualTokens, 0);
   return {
     requestsToday: events.filter(e => new Date(e.createdAt) >= today).length,
     requestsWeek: events.filter(e => new Date(e.createdAt) >= since(7)).length,
-    requestsMonth: events.filter(e => new Date(e.createdAt) >= since(30)).length,
-    failuresMonth: events.filter(e => !e.success && new Date(e.createdAt) >= since(30)).length,
+    requestsMonth: events.length,
+    failuresMonth: events.filter(e => e.success === false).length,
+    successesMonth: events.filter(e => e.success === true).length,
+    usersTotal: users.length,
+    usersActive: users.filter((user) => user.active !== false).length,
+    reportedTokens: tokenEvents.length ? sumTokens(tokenEvents) : null,
+    daily: dates.map((date) => ({ date, requests: onDay(events, date).length })),
+    dailyTokens: dates.flatMap((date) => {
+      const reported = onDay(tokenEvents, date);
+      return reported.length ? [{ date, tokens: sumTokens(reported) }] : [];
+    }),
+    userGrowth: dates.map((date) => ({ date, registrations: onDay(users, date).length })),
   };
 }
 
@@ -466,21 +537,24 @@ export async function recordAudit(entry) {
   return e;
 }
 
-export async function listAudit({ page = 1, limit = 50 } = {}) {
+export async function listAudit({ action, page = 1, limit = 50 } = {}) {
   await initStorage();
   if (storageMode() === 'mongo') {
+    const query = action ? { action: literalSearch(action) } : {};
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
-      AuditLog.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      AuditLog.countDocuments(),
+      AuditLog.find(query).select('actorEmail action targetType targetId createdAt').sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      AuditLog.countDocuments(query),
     ]);
     return { items: items.map(e => ({ ...e, id: e._id.toString() })), total };
   }
   const store = getFileStore();
-  const items = [...(store.auditLog || [])].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const match = action ? literalSearch(action) : null;
+  const items = (store.auditLog || []).filter((item) => !match || match.test(item.action))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const total = items.length;
   const skip = (page - 1) * limit;
-  return { items: items.slice(skip, skip + limit), total };
+  return { items: items.slice(skip, skip + limit).map(({ id, actorEmail, action, targetType, targetId, createdAt }) => ({ id, actorEmail, action, targetType, targetId, createdAt })), total };
 }
 
 // ---------------- System settings ----------------
@@ -518,13 +592,14 @@ export async function allSystemSettings() {
 }
 
 // ---------------- Content (library items admin) ----------------
-export async function listLibraryItemsAdmin({ kind, page = 1, limit = 20 } = {}) {
+export async function listLibraryItemsAdmin({ kind, search, page = 1, limit = 20 } = {}) {
   await initStorage();
   if (storageMode() === 'mongo') {
     const q = kind ? { kind } : {};
+    if (search) q.title = literalSearch(search);
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
-      LibraryItem.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      LibraryItem.find(q).select('kind title createdAt').sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
       LibraryItem.countDocuments(q),
     ]);
     return { items: items.map(i => ({ ...i, id: i._id.toString() })), total };
@@ -532,10 +607,14 @@ export async function listLibraryItemsAdmin({ kind, page = 1, limit = 20 } = {})
   const store = getFileStore();
   let items = store.items || [];
   if (kind) items = items.filter(i => i.kind === kind);
+  if (search) {
+    const match = literalSearch(search);
+    items = items.filter((item) => match.test(item.title));
+  }
   items = [...items].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const total = items.length;
   const skip = (page - 1) * limit;
-  return { items: items.slice(skip, skip + limit), total };
+  return { items: items.slice(skip, skip + limit).map(({ id, kind, title, createdAt }) => ({ id, kind, title, createdAt })), total };
 }
 
 export async function deleteLibraryItemAdmin(id, userId) {
@@ -593,7 +672,7 @@ export async function usageCount(userId, sinceDate) {
   return items.filter(e => new Date(e.createdAt) >= sinceDate).length;
 }
 
-export async function systemInfo() {
+export async function systemInfo({ activeJobs } = {}) {
   await initStorage();
   const { storageStatus } = await import('./store.js');
   const st = storageStatus();
@@ -631,23 +710,19 @@ export async function systemInfo() {
       }).sort((a, b) => b.mtime.localeCompare(a.mtime));
     }
   } catch { /* ignore */ }
-  // jobs
-  let queueLen = 0;
-  try {
-    const { handoutJobs } = await import('../index.js');
-    queueLen = handoutJobs ? handoutJobs.size : 0;
-  } catch { /* ignore */ }
   // AI failures last 10 min
   const since = new Date(Date.now() - 10 * 60 * 1000);
-  const { items: recent } = await listUsage({ page: 1, limit: 100000 });
-  const recentFails = recent.filter(e => !e.success && new Date(e.createdAt) >= since).length;
+  const recentFails = storageMode() === 'mongo'
+    ? await UsageEvent.countDocuments({ success: false, createdAt: { $gte: since } })
+    : (getFileStore().usageEvents || []).filter((event) => event.success === false && new Date(event.createdAt) >= since).length;
   const cfg = await getAIConfig();
+  const { lastSuccessAt, lastErrorAt } = getAIHealth();
   return {
-    api: { uptime: process.uptime(), version: process.env.npm_package_version || '0.2.1', node: process.version, memory: mem, rss: mem.rss },
-    mongo: { connected: storageMode() === 'mongo', backend: storageMode(), size: mongoSize, collections, collectionCount: collections.length },
-    ai: { enabled: cfg.enabled !== false, healthy: true, failuresLast10m: recentFails },
+    api: { uptime: process.uptime(), version: currentVersion(), node: process.version, memory: mem, rss: mem.rss },
+    mongo: { connected: st.backend === 'mongodb' && st.connected, backend: st.backend, size: mongoSize, collections, collectionCount: collections.length },
+    ai: { enabled: cfg.enabled !== false, healthy: lastSuccessAt || lastErrorAt ? Boolean(lastSuccessAt && (!lastErrorAt || lastSuccessAt > lastErrorAt)) : null, failuresLast10m: recentFails },
     host: { cpuCores: cpus.length, load1: load[0], freeMem, totalMem, freeMemMB: Math.round(freeMem / 1048576), diskFree, diskTotal, diskFreeGB: diskFree ? Math.round(diskFree / 1073741824) : null },
-    jobs: { queueLength: queueLen },
+    jobs: { queueLength: activeJobs ?? null },
     backups: { latest: backups[0] || null, count: backups.length, stale: backups[0] ? (Date.now() - new Date(backups[0].mtime).getTime() > 48 * 3600 * 1000) : true },
   };
 }
