@@ -263,7 +263,8 @@ export default function Desktop() {
         </button>
         {expanded === 'trouble' && (
           <div className="mt-3 text-sm space-y-2 opacity-80">
-            <p>If Exam Studio cannot start, open the app’s data folder and check <code>desktop.log</code>. To update, download the newest package for your platform. If you need immediate access, <a className="underline" href="/app">open the web app</a>.</p>
+            <p>Install version 0.2.5 once to enable automatic downloads of future official updates. Exam Studio verifies each installer and shows where to find it when it’s ready. Use <strong>Help → Check for updates</strong> to check immediately.</p>
+            <p>If Exam Studio cannot start, open the app’s data folder and check <code>desktop.log</code>. You can also <a className="underline" href="/app">open the web app</a>.</p>
           </div>
         )}
       </div>
