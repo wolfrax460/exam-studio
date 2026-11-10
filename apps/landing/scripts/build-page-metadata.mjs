@@ -11,6 +11,7 @@ const publicPages = {
 
 function pageHtml({ title, description, canonical, robots = 'index,follow' }) {
   return home
+    .replace(/<meta name=['"]google-site-verification['"] [^>]*>\r?\n?/, '')
     .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
     .replace(/<meta name=['"]robots['"] [^>]*>/, `<meta name="robots" content="${robots}">`)
     .replace(/<link rel=['"]canonical['"] [^>]*>/, canonical ? `<link rel="canonical" href="${canonical}">` : '')
