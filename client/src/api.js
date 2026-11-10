@@ -34,8 +34,8 @@ async function request(path, { json, ...opts } = {}) {
 }
 
 export const get = async (path, options) => (await request(path, options)).json();
-export const post = async (path, json) => (await request(path, { method: 'POST', json })).json();
-export const put = async (path, json) => (await request(path, { method: 'PUT', json })).json();
+export const post = async (path, json, options) => (await request(path, { ...options, method: 'POST', json })).json();
+export const put = async (path, json, options) => (await request(path, { ...options, method: 'PUT', json })).json();
 export const patch = async (path, json) => (await request(path, { method: 'PATCH', json })).json();
 export const del = async (path, json) => { await request(path, { method: 'DELETE', ...(json ? { json } : {}) }); };
 

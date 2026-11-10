@@ -3,7 +3,7 @@ import { post, put } from './api.js';
 import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuery } from './AdminData.jsx';
 import Modal from './ui/Modal.jsx';
 
-const types = { school: 'School', college: 'College', university: 'University', training: 'Training institution', other: 'Other' };
+export const institutionTypes = { school: 'School', college: 'College', university: 'University', training: 'Training institution', other: 'Other' };
 const statuses = { pending: 'Pending review', active: 'Active', suspended: 'Suspended' };
 
 function Status({ status }) {
@@ -11,10 +11,10 @@ function Status({ status }) {
   return <span className={`admin-badge${style}`}>{statuses[status]}</span>;
 }
 
-function Pages({ page, setPage, hasMore }) {
+export function InstitutionPages({ page, setPage, hasMore }) {
   if (page === 1 && !hasMore) return null;
   return (
-    <nav className="admin-pagination" aria-label="Institution requests pages">
+    <nav className="admin-pagination" aria-label="Institution list pages">
       <span>Page {page}</span>
       <div>
         <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button>
@@ -50,7 +50,7 @@ export function InstitutionOnboarding({ onClose }) {
             <label>Institution name<input name="name" required maxLength={160} /></label>
             <label>Institution type<select name="type" required defaultValue="">
               <option value="" disabled>Select institution type</option>
-              {Object.entries(types).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(institutionTypes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select></label>
             <label>Country<input name="country" required maxLength={100} /></label>
             <label>Location (optional)<input name="location" maxLength={160} /></label>
@@ -71,11 +71,11 @@ export function InstitutionOnboarding({ onClose }) {
           {query.data?.items.length ? (
             <ul className="institution-status-list">
               {query.data.items.map((item) => (
-                <li key={item.id}><div><strong>{item.name}</strong><small>{types[item.type]} · {item.country || 'Country unavailable'}</small></div><Status status={item.status} /></li>
+                <li key={item.id}><div><strong>{item.name}</strong><small>{institutionTypes[item.type]} · {item.country || 'Country unavailable'}</small></div><Status status={item.status} /></li>
               ))}
             </ul>
           ) : <EmptyRows>You have no institution requests.</EmptyRows>}
-          <Pages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
+          <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
         </LoadState>
       </section>
     </Modal>
@@ -136,7 +136,7 @@ export function InstitutionReview() {
             {query.data.items.map((item) => (
               <article className="admin-panel" key={item.id}>
                 <div className="admin-section-line">
-                  <div><h3>{item.name}</h3><p className="admin-muted">{types[item.type]} · {item.country || 'Country unavailable'}</p></div>
+                  <div><h3>{item.name}</h3><p className="admin-muted">{institutionTypes[item.type]} · {item.country || 'Country unavailable'}</p></div>
                   <Status status={item.status} />
                 </div>
                 <dl className="admin-key-values">
@@ -169,7 +169,7 @@ export function InstitutionReview() {
             ))}
           </div>
         ) : <EmptyRows>No institutions match this status.</EmptyRows>}
-        <Pages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
+        <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
       </LoadState>
       {selected && <ReviewDialog item={selected} onClose={closeReview} onSaved={(notice) => {
         setMessage(notice);

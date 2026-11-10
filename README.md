@@ -109,6 +109,8 @@ Set `EXAM_STUDIO_INSTITUTIONS_ENABLED=true` on an isolated server to enable inst
 
 Applicants use their existing Exam Studio account and open **Institutions** in the sidebar. Platform superadmins review pending applications under **Admin → Institution Management**. Approval grants the applicant institution administrator access and records the reviewer and timestamp. Suspension blocks workspace access for all memberships. The preview supports MongoDB and the single-process JSON file store.
 
+Approved members use the **Workspace** selector to switch between personal and institution workspaces. Institution administrators can invite existing Exam Studio accounts as teachers or members. Share the invitation code privately. The recipient signs in to that account and enters the code under **Join institution**. Codes expire after seven days and can be revoked from the member directory. Directory controls can change teacher and member roles and access. The platform retains the institution administrator membership.
+
 ## Choosing the AI
 
 The **Settings** screen (top-right, once signed in) switches provider without editing files:

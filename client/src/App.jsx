@@ -6,6 +6,8 @@ import { validateNotes } from '../../shared/notes-format.js';
 import Settings from './Settings.jsx';
 import Admin from './Admin.jsx';
 import { InstitutionOnboarding } from './Institutions.jsx';
+import InstitutionWorkspace, { JoinInstitution, WorkspacePicker } from './InstitutionWorkspace.jsx';
+import { useAdminQuery } from './AdminData.jsx';
 import Auth from './Auth.jsx';
 import Agents from './Agents.jsx';
 import TakeExam from './TakeExam.jsx';
@@ -95,6 +97,11 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showInstitutions, setShowInstitutions] = useState(false);
+  const [joiningInstitution, setJoiningInstitution] = useState(false);
+  const [selectedInstitution, setSelectedInstitution] = useState('');
+  const institutionEnabled = Boolean(health?.institutions?.enabled);
+  const workspaceList = useAdminQuery(user && institutionEnabled ? '/institutions/workspaces' : null, undefined, user?.id);
+  const institutionWorkspaces = workspaceList.data?.items || [];
   const [showAgents, setShowAgents] = useState(false);
   const [showTokens, setShowTokens] = useState(false);
   const [tokens, setTokens] = useState([]);
@@ -160,6 +167,9 @@ export default function App() {
   useEffect(() => {
     const onSignedOut = () => {
       setUser(null);
+      setShowInstitutions(false);
+      setSelectedInstitution('');
+      setJoiningInstitution(false);
       setError('Your session ended. Please sign in again.');
     };
     window.addEventListener('exam-studio:signed-out', onSignedOut);
@@ -294,6 +304,8 @@ export default function App() {
     clearSession();
     setUser(null);
     setShowInstitutions(false);
+    setSelectedInstitution('');
+    setJoiningInstitution(false);
     // Do not leave one person's work on screen for the next person.
     setNotes(null); setExam(null); setCards(null); setHandout(null);
     setNotesSavedId(''); setHandoutSavedId('');
@@ -721,6 +733,10 @@ export default function App() {
       resetToken={resetToken} onRecoveryExit={exitRecovery}
       onInstitution={health?.institutions?.enabled ? () => setShowInstitutions(true) : undefined} />;
   }
+  if (user && institutionEnabled && selectedInstitution) {
+    return <InstitutionWorkspace key={selectedInstitution} institutionId={selectedInstitution}
+      workspaces={institutionWorkspaces} onSwitch={setSelectedInstitution} />;
+  }
 
   return (
     <div className={(user ? 'app app-shell' : 'app') + (user && navCollapsed && !mobileNav ? ' nav-collapsed' : '') + (user && focusMode ? ' focus-mode' : '')}>
@@ -742,6 +758,10 @@ export default function App() {
                 <span>Teaching Workspace</span>
               </span>
             </div>
+            {institutionEnabled && <WorkspacePicker workspaces={institutionWorkspaces} onChange={(id) => {
+              closeMobileNav();
+              setSelectedInstitution(id);
+            }} />}
             <nav className="sidebar-nav" aria-label="Workspace navigation">
               {NAV_ITEMS.map((item) => (
                 <button
@@ -760,6 +780,7 @@ export default function App() {
             </nav>
             <nav className="sidebar-nav sidebar-nav-secondary" aria-label="Account navigation">
               {health?.institutions?.enabled && <button type="button" className="link" onClick={() => { closeMobileNav(); setShowInstitutions(true); }}><Icon name="institution" size={17} /><span className="nav-item-label">Institutions</span></button>}
+              {institutionEnabled && <button type="button" className="link" onClick={() => { closeMobileNav(); setJoiningInstitution(true); }}><Icon name="user" size={17} /><span className="nav-item-label">Join institution</span></button>}
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowSettings(true); }}><Icon name="settings" size={17} /><span className="nav-item-label">Settings</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowAgents(true); }}><Icon name="agents" size={17} /><span className="nav-item-label">Agents</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowTokens(true); loadTokens(); }}><Icon name="tokens" size={17} /><span className="nav-item-label">API Tokens</span></button>
@@ -980,6 +1001,11 @@ export default function App() {
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} onChanged={refreshHealth} update={update} onUpdate={setUpdate} />}
       {user && health?.institutions?.enabled && showInstitutions && <InstitutionOnboarding onClose={() => setShowInstitutions(false)} />}
+      {user && institutionEnabled && joiningInstitution && <JoinInstitution onClose={() => setJoiningInstitution(false)} onJoined={(id) => {
+        setJoiningInstitution(false);
+        workspaceList.reload();
+        setSelectedInstitution(id);
+      }} />}
       {showAgents && <Agents onClose={() => setShowAgents(false)} onOpenSettings={() => { setShowAgents(false); setShowSettings(true); }} />}
       {showTokens && (
         <div className="modal">
