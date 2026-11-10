@@ -1,6 +1,6 @@
 {
-  "version": "0.2.3",
-  "released": "2026-11-09",
-  "notes": "Refreshed desktop workspace and new macOS downloads for Apple silicon and Intel.",
+  "version": "0.2.4",
+  "released": "2026-11-10",
+  "notes": "Updated account screens and administration, plus automatic verified installer downloads for desktop.",
   "url": "https://exams-studio.vercel.app/#desktop"
 }
