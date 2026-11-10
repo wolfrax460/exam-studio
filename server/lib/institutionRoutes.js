@@ -2,6 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { academicRoutes } from './academicRoutes.js';
+import { readAcademicStructure } from './academicRepository.js';
 import { authenticateUser } from './auth.js';
 import { httpError } from './errors.js';
 import { findUserByEmail, findUserById } from './repository.js';
@@ -157,6 +159,7 @@ institutionRoutes.get('/institutions/workspace', privateRoute, resolveWorkspace,
 
 const workspaceGuard = [privateRoute, resolveWorkspace, requireInstitution];
 const memberAdminGuard = [...workspaceGuard, requireInstitutionAdmin];
+institutionRoutes.use('/institutions/academics', academicRoutes(workspaceGuard, memberAdminGuard));
 
 institutionRoutes.get('/institutions/workspaces', privateRoute, handle(async (req, res) => {
   res.json({ items: await listAuthorizedInstitutions(req.user.id) });
@@ -164,15 +167,21 @@ institutionRoutes.get('/institutions/workspaces', privateRoute, handle(async (re
 
 institutionRoutes.get('/institutions/workspace/overview', ...workspaceGuard, handle(async (req, res) => {
   const { institutionId, membership } = req.workspace;
-  const [institution, members] = await Promise.all([
+  const [institution, members, academic] = await Promise.all([
     findInstitutionById(institutionId),
     listMembershipsForInstitution(institutionId, { statuses: ['active'] }),
+    readAcademicStructure(institutionId),
   ]);
   if (institution?.status !== 'active') throw httpError(404, 'Workspace not found.');
   const counts = { admin: 0, teacher: 0, member: 0 };
   for (const { role } of members) counts[role] += 1;
   const { name, type, profile } = institution;
-  res.json({ id: institutionId, name, type, location: profile?.location, country: profile?.country, role: membership.role, counts });
+  const academicYear = academic.years.find(({ id }) => id === academic.activeYearId)?.name ?? null;
+  const academicTerm = academic.terms.find(({ id }) => id === academic.activeTermId)?.name ?? null;
+  res.json({
+    id: institutionId, name, type, location: profile?.location, country: profile?.country,
+    role: membership.role, counts, academicYear, academicTerm,
+  });
 }));
 
 institutionRoutes.get('/institutions/members', ...workspaceGuard, handle(async (req, res) => {

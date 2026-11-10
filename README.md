@@ -111,6 +111,8 @@ Applicants use their existing Exam Studio account and open **Institutions** in t
 
 Approved members use the **Workspace** selector to switch between personal and institution workspaces. Institution administrators can invite existing Exam Studio accounts as teachers or members. Share the invitation code privately. The recipient signs in to that account and enters the code under **Join institution**. Codes expire after seven days and can be revoked from the member directory. Directory controls can change teacher and member roles and access. The platform retains the institution administrator membership.
 
+Use **Academics** to set up years, terms, classes, sections, subjects and teaching assignments. An institution administrator manages the records and activates the year and term. Teachers have read access. Archived years retain their records for reference.
+
 ## Choosing the AI
 
 The **Settings** screen (top-right, once signed in) switches provider without editing files:
