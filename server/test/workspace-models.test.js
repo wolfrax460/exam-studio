@@ -31,7 +31,7 @@ describe('Institution model', () => {
 
   it('rejects unknown types, unknown statuses and negative AI limits', () => {
     const base = { name: 'Campus', slug: 'campus', type: 'college', createdBy: id() };
-    assert.match(new Institution({ ...base, type: 'university' }).validateSync().message, /type/);
+    assert.match(new Institution({ ...base, type: 'unsupported' }).validateSync().message, /type/);
     assert.match(new Institution({ ...base, status: 'archived' }).validateSync().message, /status/);
     assert.match(new Institution({ ...base, aiDailyLimit: -1 }).validateSync().message, /aiDailyLimit/);
     assert.match(new Institution({ ...base, aiDailyLimit: 1.5 }).validateSync().message, /aiDailyLimit/);
