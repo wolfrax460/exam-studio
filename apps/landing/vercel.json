@@ -10,9 +10,14 @@
     { "source": "/assets/:path*", "destination": "https://examstudio.duckdns.org/assets/:path*" },
     { "source": "/api/:path*", "destination": "https://examstudio.duckdns.org/api/:path*" },
     { "source": "/downloads/:path*", "destination": "https://examstudio.duckdns.org/downloads/:path*" },
-    { "source": "/((?!api|app|admin|assets|downloads|images).*)", "destination": "/index.html" }
+    { "source": "/:page(docs|privacy|terms)", "destination": "/:page.html" },
+    { "source": "/((?!api|app|admin|assets|downloads|images|.*\\.).+)", "destination": "/private.html" }
   ],
   "headers": [
+    {
+      "source": "/:area(app|admin|login|signup|account|settings|dashboard|reset-password|take|refunds)/:path*",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
     {
       "source": "/(.*)",
       "headers": [
