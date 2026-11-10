@@ -1,5 +1,5 @@
 {
-  "version": "0.2.4",
+  "version": "0.2.5",
   "released": "2026-11-10",
   "notes": "Updated account screens and administration, plus automatic verified installer downloads for desktop.",
   "url": "https://exams-studio.vercel.app/#desktop"
