@@ -1,20 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { get } from './api.js';
 
-export function useAdminQuery(path) {
+export function useAdminQuery(path, institutionId, sessionUserId) {
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((version) => version + 1), []);
   const [result, setResult] = useState({});
   useEffect(() => {
     if (!path) return undefined;
     const controller = new AbortController();
-    get(path, { signal: controller.signal }).then(
-      (data) => { if (!controller.signal.aborted) setResult({ path, revision, data }); },
-      (error) => { if (!controller.signal.aborted) setResult({ path, revision, error }); },
+    const headers = institutionId ? { 'X-Institution-Id': institutionId } : undefined;
+    get(path, { signal: controller.signal, headers }).then(
+      (data) => { if (!controller.signal.aborted) setResult({ path, institutionId, sessionUserId, revision, data }); },
+      (error) => { if (!controller.signal.aborted) setResult({ path, institutionId, sessionUserId, revision, error }); },
     );
     return () => controller.abort();
-  }, [path, revision]);
-  const current = result.path === path ? result : {};
+  }, [path, institutionId, sessionUserId, revision]);
+  const current = result.path === path && result.institutionId === institutionId && result.sessionUserId === sessionUserId ? result : {};
   return {
     data: current.data,
     error: current.revision === revision ? current.error : undefined,

@@ -1,13 +1,15 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authenticateUser } from './auth.js';
 import { httpError } from './errors.js';
-import { findUserById } from './repository.js';
+import { findUserByEmail, findUserById } from './repository.js';
 import { resolveWorkspace } from './workspaceAuth.js';
 import {
   createInstitution, createMembership, findInstitutionById, findMembership, listInstitutions, transitionInstitution,
+  acceptWorkspaceInvitation, changeWorkspaceMembership, inviteWorkspaceMember, listAuthorizedInstitutions,
+  listInstitutionDirectory, listMembershipsForInstitution,
 } from './workspaceRepository.js';
 import { INSTITUTION_STATUSES, INSTITUTION_TYPES } from './workspaceValidation.js';
 
@@ -40,6 +42,15 @@ const review = z.strictObject({
   version: z.number().int().nonnegative(),
   reason: z.string().trim().max(300).optional(),
 });
+const memberRole = z.enum(['teacher', 'member']);
+const invitation = z.strictObject({ email: z.string().trim().max(254).pipe(z.email()), role: memberRole });
+const acceptance = z.strictObject({ code: z.string().trim().regex(/^[A-Za-z0-9_-]{43}$/) });
+const membershipChange = z.strictObject({
+  role: memberRole.optional(),
+  status: z.enum(['active', 'suspended', 'removed']).optional(),
+}).refine((change) => change.role || change.status);
+const invitationHash = (code) => createHash('sha256').update(code).digest('hex');
+const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 function parse(schema, input) {
   const result = schema.safeParse(input);
@@ -56,6 +67,16 @@ function privateRoute(req, res, next) {
 
 function requireReviewer(req, _res, next) {
   if (!institutionAccess(req.user).canReview) return next(httpError(403, 'Platform superadmin access required.'));
+  return next();
+}
+
+function requireInstitution(req, _res, next) {
+  if (req.workspace.type !== 'institution') return next(httpError(400, 'Select an institution workspace.'));
+  return next();
+}
+
+function requireInstitutionAdmin(req, _res, next) {
+  if (req.workspace.membership.role !== 'admin') return next(httpError(403, 'Institution administrator access required.'));
   return next();
 }
 
@@ -106,6 +127,14 @@ const registrationLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many institution applications. Try again later.' },
 });
+const invitationLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 60,
+  keyGenerator: (req) => req.user.id,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many invitation requests. Try again later.' },
+});
 
 institutionRoutes.get('/institutions/requests', privateRoute, handle(async (req, res) => {
   const items = await listInstitutions({ createdBy: req.user.id, ...pageOptions(req.query) });
@@ -125,6 +154,61 @@ institutionRoutes.get('/institutions/workspace', privateRoute, resolveWorkspace,
   if (req.workspace.type !== 'institution') throw httpError(400, 'Select an institution workspace.');
   res.json({ institutionId: req.workspace.institutionId, role: req.workspace.membership.role });
 });
+
+const workspaceGuard = [privateRoute, resolveWorkspace, requireInstitution];
+const memberAdminGuard = [...workspaceGuard, requireInstitutionAdmin];
+
+institutionRoutes.get('/institutions/workspaces', privateRoute, handle(async (req, res) => {
+  res.json({ items: await listAuthorizedInstitutions(req.user.id) });
+}));
+
+institutionRoutes.get('/institutions/workspace/overview', ...workspaceGuard, handle(async (req, res) => {
+  const { institutionId, membership } = req.workspace;
+  const [institution, members] = await Promise.all([
+    findInstitutionById(institutionId),
+    listMembershipsForInstitution(institutionId, { statuses: ['active'] }),
+  ]);
+  if (institution?.status !== 'active') throw httpError(404, 'Workspace not found.');
+  const counts = { admin: 0, teacher: 0, member: 0 };
+  for (const { role } of members) counts[role] += 1;
+  const { name, type, profile } = institution;
+  res.json({ id: institutionId, name, type, location: profile?.location, country: profile?.country, role: membership.role, counts });
+}));
+
+institutionRoutes.get('/institutions/members', ...workspaceGuard, handle(async (req, res) => {
+  const { institutionId, membership } = req.workspace;
+  const isAdmin = membership.role === 'admin';
+  const statuses = isAdmin ? ['active', 'invited', 'suspended'] : ['active'];
+  const members = await listInstitutionDirectory(institutionId, { statuses, ...pageOptions(req.query) }, isAdmin);
+  sendPage(res, members, (member) => member);
+}));
+
+institutionRoutes.post('/institutions/members/invitations', ...memberAdminGuard, invitationLimit, handle(async (req, res) => {
+  const { email, role } = parse(invitation, req.body);
+  const invitee = await findUserByEmail(email);
+  if (!invitee?.active) throw httpError(404, 'An active Exam Studio account is required for this address.');
+  const code = randomBytes(32).toString('base64url');
+  const inviteExpiresAt = new Date(Date.now() + INVITE_LIFETIME_MS);
+  await inviteWorkspaceMember({
+    userId: invitee.id, institutionId: req.workspace.institutionId, email: invitee.email, role,
+    invitedBy: req.user.id, inviteHash: invitationHash(code), inviteExpiresAt,
+  });
+  res.status(201).json({ code, expiresAt: inviteExpiresAt.toISOString() });
+}));
+
+institutionRoutes.post('/institutions/invitations/accept', privateRoute, handle(async (req, res) => {
+  const { code } = parse(acceptance, req.body);
+  const membership = await acceptWorkspaceInvitation(req.user.id, invitationHash(code));
+  if (!membership) throw httpError(404, 'The invitation is invalid, expired or unavailable for this account.');
+  res.json({ institutionId: membership.institutionId });
+}));
+
+institutionRoutes.put('/institutions/members/:id', ...memberAdminGuard, handle(async (req, res) => {
+  const change = parse(membershipChange, req.body);
+  const member = await changeWorkspaceMembership(req.workspace.institutionId, req.params.id, change);
+  if (!member) throw httpError(404, 'Manageable membership not found.');
+  res.json({ id: member.id, role: member.role, status: member.status });
+}));
 
 institutionRoutes.get('/admin/institutions', privateRoute, requireReviewer, handle(async (req, res) => {
   const status = req.query.status;

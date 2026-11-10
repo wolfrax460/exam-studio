@@ -50,6 +50,8 @@ const membershipSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  inviteHash: { type: String, select: false },
+  inviteExpiresAt: Date,
 });
 
 // One membership per person per institution. A removed member can be reactivated on this row.
