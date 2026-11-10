@@ -7,6 +7,7 @@ import Plans from './AdminPlans.jsx';
 import { Audit, Content, Usage } from './AdminActivity.jsx';
 import { AIConfig, Announcements, System } from './AdminOperations.jsx';
 import AdminSettings from './AdminSettings.jsx';
+import { InstitutionReview } from './Institutions.jsx';
 import Icon from './ui/Icon.jsx';
 import brandMark from './assets/exam-studio-mark.svg';
 import './theme/admin.css';
@@ -23,6 +24,10 @@ const PAGES = [
   { key: 'audit', title: 'Audit', icon: 'clipboard', description: 'Review the platform administration activity trail.', component: Audit },
   { key: 'settings', title: 'Settings', icon: 'settings', description: 'Manage platform defaults and administrator security.', component: AdminSettings },
 ];
+const INSTITUTIONS = {
+  key: 'institutions', title: 'Institution Management', icon: 'institution',
+  description: 'Review institution applications and manage workspace access.', component: InstitutionReview,
+};
 
 function Brand() {
   return (
@@ -51,24 +56,29 @@ function AccessScreen({ title, message, retry, onExit }) {
 
 export default function Admin({ onExit, theme, toggleTheme }) {
   const [signedIn, setSignedIn] = useState(isAuthenticated);
-  const [tab, setTab] = useState(() => PAGES.find(({ key }) => key === window.location.hash.slice(1))?.key || 'overview');
+  const [tab, setTab] = useState(() => window.location.hash.slice(1));
   const [navOpen, setNavOpen] = useState(false);
   const menu = useRef(null);
   const heading = useRef(null);
-  const access = useAdminQuery(signedIn ? '/admin/me' : null);
+  const access = useAdminQuery(signedIn ? '/health' : null);
   useEffect(() => {
     const endSession = () => setSignedIn(false);
     window.addEventListener('exam-studio:signed-out', endSession);
     return () => window.removeEventListener('exam-studio:signed-out', endSession);
   }, []);
   if (!signedIn) return <AccessScreen title="Sign in to continue" message="Platform administration requires an active administrator session." onExit={onExit} />;
-  if (access.error?.status === 403) return <AccessScreen title="Administrator access required" message="This account does not have platform administration access." onExit={onExit} />;
   if (access.error) return <AccessScreen title="Could not verify access" message={access.error.message} retry={access.reload} onExit={onExit} />;
-  if (access.pending || !access.data?.user) return <main className="admin-access" role="status">Verifying administrator access…</main>;
+  if (access.pending) return <main className="admin-access" role="status">Verifying administrator access…</main>;
 
-  const page = PAGES.find(({ key }) => key === tab);
+  const account = access.data?.user;
+  const canReview = access.data?.institutions?.canReview;
+  const pages = [
+    ...(account?.role === 'admin' ? PAGES : []),
+    ...(canReview ? [INSTITUTIONS] : []),
+  ];
+  if (!pages.length) return <AccessScreen title="Administrator access required" message="This account does not have platform administration access." onExit={onExit} />;
+  const page = pages.find(({ key }) => key === tab) || pages[0];
   const Section = page.component;
-  const account = access.data.user;
   function openSection(key) {
     setTab(key);
     setNavOpen(false);
@@ -86,10 +96,10 @@ export default function Admin({ onExit, theme, toggleTheme }) {
         <nav id="admin-navigation" className={navOpen ? 'admin-nav is-open' : 'admin-nav'} aria-label="Administration"
           onKeyDown={(event) => { if (event.key === 'Escape' && navOpen) { setNavOpen(false); menu.current?.focus(); } }}>
           <p>Workspace</p>
-          {PAGES.map(({ key, title, icon }) => (
+          {pages.map(({ key, title, icon }) => (
             <React.Fragment key={key}>
               {key === 'system' && <p>Operations</p>}
-              <button type="button" aria-current={key === tab ? 'page' : undefined} onClick={() => openSection(key)}>
+              <button type="button" aria-current={key === page.key ? 'page' : undefined} onClick={() => openSection(key)}>
                 <Icon name={icon} size={18} />{title}
               </button>
             </React.Fragment>
@@ -113,7 +123,7 @@ export default function Admin({ onExit, theme, toggleTheme }) {
             </div>
             <div className="admin-account">
               <span className="admin-avatar" aria-hidden="true">{(account.name || account.email || 'A').slice(0, 1).toUpperCase()}</span>
-              <div><strong>{account.name || 'Administrator'}</strong><small>Platform administrator</small></div>
+              <div><strong>{account.name || 'Administrator'}</strong><small>{canReview ? 'Platform superadmin' : 'Platform administrator'}</small></div>
             </div>
           </header>
           <Section />

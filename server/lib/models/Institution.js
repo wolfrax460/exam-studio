@@ -4,6 +4,22 @@ import {
   INSTITUTION_STATUSES,
 } from '../workspaceValidation.js';
 
+const profileSchema = new mongoose.Schema({
+  country: { type: String, required: true, maxlength: 100 },
+  location: { type: String, maxlength: 160 },
+  contactEmail: { type: String, required: true, maxlength: 254 },
+  telephone: { type: String, maxlength: 40 },
+  description: { type: String, maxlength: 1000 },
+}, { _id: false });
+
+const reviewSchema = new mongoose.Schema({
+  from: { type: String, enum: INSTITUTION_STATUSES, required: true },
+  status: { type: String, enum: INSTITUTION_STATUSES, required: true },
+  by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  at: { type: Date, required: true },
+  reason: { type: String, maxlength: 300 },
+}, { _id: false });
+
 const institutionSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -49,6 +65,9 @@ const institutionSchema = new mongoose.Schema({
     default: Date.now,
     index: true,
   },
+  profile: profileSchema,
+  reviewVersion: { type: Number, default: 0 },
+  history: { type: [reviewSchema], default: [] },
 });
 
 institutionSchema.index({ status: 1, type: 1 });

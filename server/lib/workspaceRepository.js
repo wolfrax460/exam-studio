@@ -2,8 +2,7 @@
 // assignments.
 //
 // MongoDB uses the Mongoose models; the JSON file backend uses the same validation helpers
-// and uniqueness rules. No route or authorization code calls this yet: Phase B1 is the
-// foundation only.
+// and uniqueness rules.
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import {
@@ -83,6 +82,11 @@ function normalizeInstitution(doc) {
     createdBy: stringId(doc.createdBy),
     aiDailyLimit: doc.aiDailyLimit === null || doc.aiDailyLimit === undefined ? null : Number(doc.aiDailyLimit),
     createdAt: asIso(doc.createdAt),
+    profile: doc.profile?.toObject?.() ?? doc.profile ?? null,
+    version: doc.reviewVersion ?? 0,
+    history: (doc.history || []).map(({ from, status, by, at, reason }) => ({
+      from, status, by: stringId(by), at: asIso(at), reason: reason || '',
+    })),
   };
 }
 
@@ -142,7 +146,8 @@ function validateInstitutionInput(input = {}) {
   const createdBy = normalizeId(input.createdBy, 'createdBy');
   const aiDailyLimit = normalizeDailyLimit(input.aiDailyLimit);
   const createdAt = input.createdAt === undefined ? new Date() : normalizeDate(input.createdAt, 'createdAt');
-  return { name, slug, type, status, createdBy, aiDailyLimit, createdAt };
+  const profile = input.profile === undefined ? {} : { profile: input.profile };
+  return { name, slug, type, status, createdBy, aiDailyLimit, createdAt, ...profile };
 }
 
 function validateMembershipInput(input = {}) {
@@ -223,7 +228,12 @@ export async function createInstitution(input) {
     createdAt: data.createdAt.toISOString(),
   };
   store.institutions.push(record);
-  saveFileStore();
+  try {
+    saveFileStore();
+  } catch (error) {
+    store.institutions.pop();
+    throw error;
+  }
   return normalizeInstitution(record);
 }
 
@@ -249,16 +259,55 @@ export async function findInstitutionBySlug(slug) {
   return doc ? normalizeInstitution(doc) : null;
 }
 
-export async function listInstitutions() {
+export async function listInstitutions({ createdBy, status, offset = 0, limit } = {}) {
   await initStorage();
+  const filters = {
+    ...(createdBy ? { createdBy } : {}),
+    ...(status ? { status } : {}),
+  };
   if (isMongo()) {
-    const docs = await Institution.find({}).sort({ createdAt: -1 }).lean();
+    const query = Institution.find(filters).sort({ createdAt: -1, _id: -1 }).skip(offset);
+    if (limit) query.limit(limit);
+    const docs = await query.lean();
     return docs.map(normalizeInstitution);
   }
   return ensureFileCollections().institutions
-    .slice()
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .filter((entry) => Object.entries(filters).every(([key, value]) => entry[key] === value))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.id.localeCompare(a.id))
+    .slice(offset, limit ? offset + limit : undefined)
     .map(normalizeInstitution);
+}
+
+export async function transitionInstitution(institution, { status, by, reason }) {
+  await initStorage();
+  const event = { from: institution.status, status, by, reason, at: new Date().toISOString() };
+  if (isMongo()) {
+    const version = institution.version === 0
+      ? { $or: [{ reviewVersion: 0 }, { reviewVersion: { $exists: false } }] }
+      : { reviewVersion: institution.version };
+    const doc = await Institution.findOneAndUpdate(
+      { _id: institution.id, status: institution.status, ...version },
+      { $set: { status }, $inc: { reviewVersion: 1 }, $push: { history: event } },
+      { new: true, runValidators: true },
+    ).lean();
+    return doc ? normalizeInstitution(doc) : null;
+  }
+
+  const store = ensureFileCollections();
+  const index = store.institutions.findIndex((entry) => entry.id === institution.id);
+  const previous = store.institutions[index];
+  if (previous?.status !== institution.status || (previous.reviewVersion ?? 0) !== institution.version) return null;
+  const updated = {
+    ...previous, status, reviewVersion: institution.version + 1, history: [...(previous.history || []), event],
+  };
+  store.institutions[index] = updated;
+  try {
+    saveFileStore();
+  } catch (error) {
+    store.institutions[index] = previous;
+    throw error;
+  }
+  return normalizeInstitution(updated);
 }
 
 // ---------------------------------------------------------------- memberships
@@ -267,6 +316,7 @@ export async function createMembership(input) {
   const data = validateMembershipInput(input);
 
   if (isMongo()) {
+    await Membership.init();
     try {
       const doc = await Membership.create({
         ...data,
@@ -292,7 +342,12 @@ export async function createMembership(input) {
     acceptedAt: data.acceptedAt ? data.acceptedAt.toISOString() : null,
   };
   store.memberships.push(record);
-  saveFileStore();
+  try {
+    saveFileStore();
+  } catch (error) {
+    store.memberships.pop();
+    throw error;
+  }
   return normalizeMembership(record);
 }
 

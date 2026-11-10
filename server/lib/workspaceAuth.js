@@ -7,7 +7,7 @@
 //   X-Institution-Id: <institution id>
 //
 // The institution id is only a request for a workspace. It is never trusted on its own: the
-// user must have an ACTIVE membership in that institution. A missing institution, an inactive
+// user must have an active membership in an active institution. A missing institution, an inactive
 // membership, and a resource owned by another institution all answer 404 so they cannot be
 // used to probe for other tenants.
 //
@@ -71,7 +71,7 @@ export async function resolveWorkspace(req, _res, next) {
       findInstitutionById(institutionId),
       findMembership(userId, institutionId),
     ]);
-    if (!institution || !membership || membership.status !== 'active') {
+    if (institution?.status !== 'active' || membership?.status !== 'active') {
       return next(notFound());
     }
 
@@ -85,7 +85,7 @@ export async function resolveWorkspace(req, _res, next) {
     return next();
   } catch (error) {
     if (error.status) return next(error);
-    return next(httpError(503, `Workspace could not be checked: ${error.message}`));
+    return next(httpError(503, 'Workspace could not be checked.'));
   }
 }
 

@@ -4,7 +4,7 @@
 // engine. Keeping the allowed enums and the assignment shape checks here means both
 // backends reject the same records for the same reasons.
 
-export const INSTITUTION_TYPES = Object.freeze(['school', 'college', 'training', 'other']);
+export const INSTITUTION_TYPES = Object.freeze(['school', 'college', 'university', 'training', 'other']);
 export const INSTITUTION_STATUSES = Object.freeze(['pending', 'active', 'suspended']);
 export const MEMBERSHIP_ROLES = Object.freeze(['admin', 'teacher', 'member']);
 export const MEMBERSHIP_STATUSES = Object.freeze(['invited', 'active', 'removed', 'suspended']);

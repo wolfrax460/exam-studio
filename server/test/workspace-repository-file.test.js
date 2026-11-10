@@ -158,7 +158,7 @@ describe('JSON file workspace repository', () => {
 
   it('rejects invalid enums and limits in file mode', async () => {
     await assert.rejects(
-      repo.createInstitution({ name: 'Bad', slug: 'bad', type: 'university', createdBy: id() }),
+      repo.createInstitution({ name: 'Bad', slug: 'bad', type: 'unsupported', createdBy: id() }),
       /type/,
     );
     await assert.rejects(
