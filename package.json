@@ -1,6 +1,6 @@
 {
   "name": "exam-studio",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "description": "Turn course notes into study handouts, notes, flashcards and exams.",

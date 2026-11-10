@@ -194,7 +194,7 @@ electron/main.js       desktop shell (npm run desktop, needs electron installed)
 
 Exam Studio checks whether a newer version exists **at most once every 24 hours**, and tells you: a banner in the app, and in the desktop build a dialog you see once per new version. A failed check is recorded and otherwise ignored — the app never blocks on it and works offline.
 
-Starting with desktop 0.2.4, packaged apps download future official GitHub installers for their operating system, architecture and package type. Exam Studio checks the file size and SHA-256, then offers to show the verified download so you can install it. Use **Help → Check for updates** to check immediately. Custom feeds support manual updates through their release link.
+Starting with desktop 0.2.5, packaged apps download future official GitHub installers for their operating system, architecture and package type. Exam Studio checks the file size and SHA-256, then offers to show the verified download so you can install it. Use **Help → Check for updates** to check immediately. Custom feeds support manual updates through their release link.
 
 Point it at where you publish releases. You can do this in **Settings → Updates** (which is how you do it in the desktop app, where there is no `.env` file), or in `server/.env`:
 
