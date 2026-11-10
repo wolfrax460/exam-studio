@@ -103,6 +103,12 @@ If you put Exam Studio behind a proxy, raise that proxy's read timeout: a handou
 - Failed sign-ins are limited to `LOGIN_LIMIT_PER_15_MIN` (default 30) per address, and new accounts to `REGISTER_LIMIT_PER_HOUR` (default 10) per address.
 - Passwords need 8+ characters with a lower-case letter, an upper-case letter and a digit, and at most 72 characters.
 
+## Institution onboarding preview
+
+Set `EXAM_STUDIO_INSTITUTIONS_ENABLED=true` on an isolated server to enable institution registration and platform review. The preview is disabled by default. Use `EXAM_STUDIO_SUPERADMIN_IDS` to configure a comma-separated list of authorized account IDs. Obtain the ID from the account's authenticated `GET /api/auth/me` response. Use dedicated reviewer accounts and keep the server configuration private.
+
+Applicants use their existing Exam Studio account and open **Institutions** in the sidebar. Platform superadmins review pending applications under **Admin → Institution Management**. Approval grants the applicant institution administrator access and records the reviewer and timestamp. Suspension blocks workspace access for all memberships. The preview supports MongoDB and the single-process JSON file store.
+
 ## Choosing the AI
 
 The **Settings** screen (top-right, once signed in) switches provider without editing files:

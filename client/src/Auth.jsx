@@ -19,7 +19,7 @@ const PASSWORD_RULES = [
   ['Number', (value) => /[0-9]/.test(value)],
 ];
 
-export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSession, resetToken, onRecoveryExit }) {
+export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSession, resetToken, onRecoveryExit, onInstitution }) {
   const [view, setView] = useState(() => {
     if (resetToken) return 'reset';
     const requested = new URLSearchParams(window.location.search).get('auth');
@@ -165,12 +165,16 @@ export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSe
         </section>
       </div>
       {institution && (
-        <Modal title="Institution Workspaces — Coming Soon" onClose={() => setInstitution(false)} className="auth-institution-modal">
+        <Modal title={onInstitution ? 'Institution registration' : 'Institution Workspaces — Coming Soon'} onClose={() => setInstitution(false)} className="auth-institution-modal">
           <div className="auth-institution-mark"><Icon name="institution" size={26} /></div>
-          <p className="auth-kicker">Coming soon</p>
-          <p>We’re building Exam Studio for educational institutions, including collaborative workspaces, school management and examination administration. This feature is not available yet.</p>
+          <p className="auth-kicker">{onInstitution ? 'Platform review' : 'Coming soon'}</p>
+          <p>{onInstitution
+            ? 'Use your Exam Studio account to submit an institution for approval. You can check the status of your application from your workspace.'
+            : 'We’re building Exam Studio for educational institutions, including collaborative workspaces, school management and examination administration. This feature is not available yet.'}</p>
           <div className="studio-modal-actions">
-            <button className="primary" type="button" onClick={() => setInstitution(false)}>Back to Personal Account</button>
+            <button className="primary" type="button" onClick={() => { setInstitution(false); onInstitution?.(); }}>
+              {onInstitution ? (signup ? 'Continue to create account' : 'Continue to sign in') : 'Back to Personal Account'}
+            </button>
             <button type="button" onClick={() => setInstitution(false)}>Close</button>
           </div>
         </Modal>

@@ -5,6 +5,7 @@ import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, va
 import { validateNotes } from '../../shared/notes-format.js';
 import Settings from './Settings.jsx';
 import Admin from './Admin.jsx';
+import { InstitutionOnboarding } from './Institutions.jsx';
 import Auth from './Auth.jsx';
 import Agents from './Agents.jsx';
 import TakeExam from './TakeExam.jsx';
@@ -93,6 +94,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showInstitutions, setShowInstitutions] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
   const [showTokens, setShowTokens] = useState(false);
   const [tokens, setTokens] = useState([]);
@@ -291,6 +293,7 @@ export default function App() {
     await logout();
     clearSession();
     setUser(null);
+    setShowInstitutions(false);
     // Do not leave one person's work on screen for the next person.
     setNotes(null); setExam(null); setCards(null); setHandout(null);
     setNotesSavedId(''); setHandoutSavedId('');
@@ -679,7 +682,7 @@ export default function App() {
               <button type="button" onClick={(event) => { closeMenu(event); setShowSettings(true); }}>Settings</button>
               <button type="button" onClick={(event) => { closeMenu(event); setShowAgents(true); }}>Agents</button>
               <button type="button" onClick={(event) => { closeMenu(event); setShowTokens(true); loadTokens(); }}>API tokens</button>
-              {user?.role === 'admin' && <button type="button" onClick={(event) => { closeMenu(event); window.location.assign('/admin'); }}>Admin</button>}
+              {(user?.role === 'admin' || health?.institutions?.canReview) && <button type="button" onClick={(event) => { closeMenu(event); window.location.assign('/admin'); }}>Admin</button>}
               <button type="button" className="danger" onClick={(event) => { closeMenu(event); handleLogout(); }}>Sign out</button>
             </div>
           </details>
@@ -715,7 +718,8 @@ export default function App() {
   if (!checking && (!user || resetToken)) {
     return <Auth theme={theme} toggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
       notice={error} onDismissNotice={() => setError('')} onSession={acceptSession}
-      resetToken={resetToken} onRecoveryExit={exitRecovery} />;
+      resetToken={resetToken} onRecoveryExit={exitRecovery}
+      onInstitution={health?.institutions?.enabled ? () => setShowInstitutions(true) : undefined} />;
   }
 
   return (
@@ -755,10 +759,11 @@ export default function App() {
               ))}
             </nav>
             <nav className="sidebar-nav sidebar-nav-secondary" aria-label="Account navigation">
+              {health?.institutions?.enabled && <button type="button" className="link" onClick={() => { closeMobileNav(); setShowInstitutions(true); }}><Icon name="institution" size={17} /><span className="nav-item-label">Institutions</span></button>}
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowSettings(true); }}><Icon name="settings" size={17} /><span className="nav-item-label">Settings</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowAgents(true); }}><Icon name="agents" size={17} /><span className="nav-item-label">Agents</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowTokens(true); loadTokens(); }}><Icon name="tokens" size={17} /><span className="nav-item-label">API Tokens</span></button>
-              {user?.role === 'admin' && <button type="button" className="link" onClick={() => window.location.assign('/admin')}><Icon name="admin" size={17} /><span className="nav-item-label">Admin</span></button>}
+              {(user?.role === 'admin' || health?.institutions?.canReview) && <button type="button" className="link" onClick={() => window.location.assign('/admin')}><Icon name="admin" size={17} /><span className="nav-item-label">Admin</span></button>}
             </nav>
             <div className="sidebar-account">
               <div className="sidebar-user">
@@ -974,6 +979,7 @@ export default function App() {
       )}
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} onChanged={refreshHealth} update={update} onUpdate={setUpdate} />}
+      {user && health?.institutions?.enabled && showInstitutions && <InstitutionOnboarding onClose={() => setShowInstitutions(false)} />}
       {showAgents && <Agents onClose={() => setShowAgents(false)} onOpenSettings={() => { setShowAgents(false); setShowSettings(true); }} />}
       {showTokens && (
         <div className="modal">

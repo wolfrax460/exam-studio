@@ -34,6 +34,7 @@ import PublicQuota from './lib/models/PublicQuota.js';
 import McpQuota from './lib/models/McpQuota.js';
 import { dailyGenerationLimit, anonymousGenerationLimit, generationRateLimit, resetsAtIso, kigaliDay } from './lib/dailyLimit.js';
 import { requireAdmin } from './lib/auth.js';
+import { institutionAccess, institutionRoutes, protectSuperadminAccount } from './lib/institutionRoutes.js';
 import * as totp from './lib/totp.js';
 import { pingProvider, listProviderModels } from './lib/engine.js';
 import { launchInfo, snippets } from './lib/agents.js';
@@ -554,6 +555,7 @@ const settingsPayload = (req) => {
 
 // ---------------------------------------------------------------- public routes
 app.get('/api/health', optionalAuthenticateUser, wrap(async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   const info = activeInfo();
   const storage = storageStatus();
   const isDefaultAI = info.id === 'nvidia';
@@ -575,6 +577,7 @@ app.get('/api/health', optionalAuthenticateUser, wrap(async (req, res) => {
     },
     authRequired: true,
     sessionDays: JWT_EXPIRES_IN,
+    institutions: institutionAccess(req.user),
     user: req.user ? publicUser(req.user) : null,
   });
 }));
@@ -1202,6 +1205,7 @@ app.post('/api/v1/generate/exam', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- protected routes
+app.use('/api', institutionRoutes);
 app.use('/api', (req, res, next) => (req.path.startsWith('/take') ? next() : authenticateUser(req, res, next)));
 app.use('/api', (req, res, next) => (req.path.startsWith('/take') ? next() : generationRateLimit(req, res, next)));
 
@@ -2085,7 +2089,7 @@ app.get('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
   if (!u) throw httpError(404, 'User not found.');
   res.json(u);
 }));
-app.put('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
+app.put('/api/admin/users/:id', ...adminGuard, protectSuperadminAccount, wrap(async (req, res) => {
   const patch = {};
   if (req.body?.name !== undefined) patch.name = s(req.body.name, 80);
   if (req.body?.role !== undefined) patch.role = s(req.body.role, 20);
@@ -2097,13 +2101,13 @@ app.put('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.update', targetType: 'user', targetId: req.params.id, after: patch });
   res.json(updated);
 }));
-app.delete('/api/admin/users/:id', ...adminGuard, wrap(async (req, res) => {
+app.delete('/api/admin/users/:id', ...adminGuard, protectSuperadminAccount, wrap(async (req, res) => {
   const ok = await admin.deleteUser(req.params.id);
   if (!ok) throw httpError(404, 'User not found.');
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.delete', targetType: 'user', targetId: req.params.id });
   res.json({ ok: true });
 }));
-app.post('/api/admin/users/:id/reset-password', ...adminGuard, wrap(async (req, res) => {
+app.post('/api/admin/users/:id/reset-password', ...adminGuard, protectSuperadminAccount, wrap(async (req, res) => {
   const password = String(req.body?.password || '');
   const pwErr = validatePassword(password);
   if (pwErr) throw httpError(400, pwErr);
@@ -2112,7 +2116,7 @@ app.post('/api/admin/users/:id/reset-password', ...adminGuard, wrap(async (req, 
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.resetPassword', targetType: 'user', targetId: req.params.id });
   res.json({ ok: true });
 }));
-app.post('/api/admin/users/:id/signout', ...adminGuard, wrap(async (req, res) => {
+app.post('/api/admin/users/:id/signout', ...adminGuard, protectSuperadminAccount, wrap(async (req, res) => {
   await admin.updateUser(req.params.id, { forceSignOut: true });
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'user.signout', targetType: 'user', targetId: req.params.id });
   res.json({ ok: true });
