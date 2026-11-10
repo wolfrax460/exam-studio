@@ -708,7 +708,8 @@ export default function App() {
     return <TakeExam shareCode={window.location.pathname.split('/').filter(Boolean)[1]} />;
   }
   if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
-    return <Admin onExit={() => window.location.assign('/app')} />;
+    return <Admin onExit={() => window.location.assign('/app')} theme={theme}
+      toggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} />;
   }
 
   if (!checking && (!user || resetToken)) {

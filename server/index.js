@@ -2053,7 +2053,10 @@ app.get('/api/agents/info', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- admin API
-const adminGuard = [authenticateUser, requireAdmin];
+const adminGuard = [authenticateUser, requireAdmin, (_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  next();
+}];
 
 app.get('/api/admin/me', ...adminGuard, wrap(async (req, res) => { res.json({ user: publicUser(req.user) }); }));
 
@@ -2061,7 +2064,8 @@ app.get('/api/admin/me', ...adminGuard, wrap(async (req, res) => { res.json({ us
 app.get('/api/admin/users', ...adminGuard, wrap(async (req, res) => {
   const page = int(req.query.page, 1, 1, 10000);
   const limit = int(req.query.limit, 20, 1, 100);
-  const data = await admin.listUsers({ search: s(req.query.search || '', 100), role: s(req.query.role || '', 20), page, limit });
+  const status = ['active', 'disabled'].includes(req.query.status) ? req.query.status : '';
+  const data = await admin.listUsers({ search: s(req.query.search || '', 100), role: s(req.query.role || '', 20), status, page, limit });
   res.json(data);
 }));
 app.post('/api/admin/users', ...adminGuard, wrap(async (req, res) => {
@@ -2151,7 +2155,10 @@ app.post('/api/admin/plans/:id/default', ...adminGuard, wrap(async (req, res) =>
 app.get('/api/admin/ai-config', ...adminGuard, wrap(async (_req, res) => { res.json(await admin.getAIConfig()); }));
 app.put('/api/admin/ai-config', ...adminGuard, wrap(async (req, res) => {
   const cfg = await admin.updateAIConfig(req.body || {});
-  await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'aiConfig.update', targetType: 'aiConfig', after: req.body });
+  await admin.recordAudit({
+    actorId: req.user.id, actorEmail: req.user.email, action: 'aiConfig.update', targetType: 'aiConfig',
+    after: { fields: Object.keys(req.body || {}), hasKey: cfg.hasKey },
+  });
   res.json(cfg);
 }));
 app.post('/api/admin/ai-config/test', ...adminGuard, wrap(async (req, res) => {
@@ -2164,14 +2171,15 @@ app.get('/api/admin/ai-config/models', ...adminGuard, wrap(async (_req, res) => 
 
 // Usage
 app.get('/api/admin/usage', ...adminGuard, wrap(async (req, res) => {
-  const data = await admin.listUsage({ userId: s(req.query.userId || '', 64) || undefined, taskType: s(req.query.taskType || '', 20) || undefined, page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
+  const outcome = ['success', 'failure'].includes(req.query.outcome) ? req.query.outcome : undefined;
+  const data = await admin.listUsage({ userId: s(req.query.userId || '', 64) || undefined, taskType: s(req.query.taskType || '', 20) || undefined, outcome, page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
   res.json(data);
 }));
 app.get('/api/admin/usage/summary', ...adminGuard, wrap(async (_req, res) => { res.json(await admin.usageSummary()); }));
 
 // Content
 app.get('/api/admin/content', ...adminGuard, wrap(async (req, res) => {
-  const data = await admin.listLibraryItemsAdmin({ kind: s(req.query.kind || '', 20) || undefined, page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 20, 1, 100) });
+  const data = await admin.listLibraryItemsAdmin({ kind: s(req.query.kind || '', 20) || undefined, search: s(req.query.search || '', 100), page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 20, 1, 100) });
   res.json(data);
 }));
 app.delete('/api/admin/content/:id', ...adminGuard, wrap(async (req, res) => {
@@ -2203,7 +2211,7 @@ app.delete('/api/admin/announcements/:id', ...adminGuard, wrap(async (req, res) 
 
 // Audit
 app.get('/api/admin/audit', ...adminGuard, wrap(async (req, res) => {
-  const data = await admin.listAudit({ page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
+  const data = await admin.listAudit({ action: s(req.query.action || '', 100), page: int(req.query.page, 1, 1, 10000), limit: int(req.query.limit, 50, 1, 200) });
   res.json(data);
 }));
 
@@ -2249,12 +2257,12 @@ app.get('/api/admin/health', ...adminGuard, wrap(async (_req, res) => {
   res.json({ ok: true, storage: storageStatus(), version: VERSION, uptime: process.uptime(), memory: process.memoryUsage() });
 }));
 app.get('/api/admin/system', ...adminGuard, wrap(async (_req, res) => {
-  res.json(await admin.systemInfo());
+  const activeJobs = [...handoutJobs.values()].filter((job) => !job.done && !job.cancelled && Date.now() - job.startedAt <= JOB_TTL_MS).length;
+  res.json(await admin.systemInfo({ activeJobs }));
 }));
 app.get('/api/admin/ai-health', ...adminGuard, wrap(async (_req, res) => {
-  let health = null;
-  try { health = admin.getAIHealth(); } catch { health = null; }
-  res.json(health);
+  const { lastSuccessAt, lastLatency, lastErrorAt } = admin.getAIHealth();
+  res.json({ lastSuccessAt, lastLatency, lastErrorAt });
 }));
 app.post('/api/admin/diagnostics', ...adminGuard, wrap(async (req, res) => {
   const id = s(req.body?.id, 40);
