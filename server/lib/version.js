@@ -16,6 +16,7 @@ import { getSettings } from './settings.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const OFFICIAL_UPDATE_REPO = 'wolfrax460/exam-studio';
 const FETCH_TIMEOUT_MS = 8000;
 
 /** The version of the running app, from the package the installer was built from. */
@@ -86,12 +87,28 @@ export function updateSource() {
   return null;
 }
 
-function versionFromBody(text) {
+const officialSource = (source) => source?.kind === 'github' && source.repo === OFFICIAL_UPDATE_REPO;
+
+function officialAssets(data, candidate, source) {
+  if (!officialSource(source) || data.draft !== false || data.prerelease !== false
+    || data.tag_name !== candidate || !/^v\d+\.\d+\.\d+$/.test(candidate) || !Array.isArray(data.assets)) return [];
+  const prefix = `https://github.com/${OFFICIAL_UPDATE_REPO}/releases/download/${candidate}/`;
+  return data.assets.filter((asset) => asset?.state === 'uploaded' && typeof asset.name === 'string'
+    && asset.browser_download_url === prefix + asset.name && typeof asset.digest === 'string')
+    .map(({ name, size, digest }) => ({ name, size, digest }));
+}
+
+function versionFromBody(text, source) {
   const trimmed = String(text || '').trim();
   try {
     const data = JSON.parse(trimmed);
     const candidate = data?.version || data?.tag_name || data?.tag || data?.latest || data?.name;
-    if (candidate) return { version: String(candidate).trim(), notes: String(data?.notes || data?.body || '').slice(0, 2000), url: data?.html_url || data?.url || '' };
+    if (candidate) return {
+      version: String(candidate).trim(),
+      notes: String(data?.notes || data?.body || '').slice(0, 2000),
+      url: data?.html_url || data?.url || '',
+      officialAssets: officialAssets(data, candidate, source),
+    };
   } catch { /* not JSON: fall through to plain text */ }
   const plain = /^v?\d+(?:\.\d+)*/.exec(trimmed);
   if (plain) return { version: plain[0], notes: '', url: '' };
@@ -107,13 +124,15 @@ async function fetchLatest(source) {
   }
   let response;
   try {
-    response = await fetch(source.url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'follow' });
+    response = await fetch(source.url, {
+      headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: officialSource(source) ? 'error' : 'follow',
+    });
   } catch (error) {
     throw new Error(error?.name === 'TimeoutError' ? 'The update server did not answer in time.' : `Could not reach the update server (${error.message}).`);
   }
   if (response.status === 404) throw new Error(source.kind === 'github' ? 'No published release was found for this repository yet.' : 'The update feed was not found.');
   if (!response.ok) throw new Error(`The update server answered ${response.status}.`);
-  const parsed = versionFromBody(await response.text());
+  const parsed = versionFromBody(await response.text(), source);
   if (!parsed) throw new Error('The update feed did not contain a version.');
   return parsed;
 }
@@ -159,6 +178,7 @@ export async function checkForUpdate({ force = false, now = Date.now() } = {}) {
   if (!force && fresh) {
     return {
       ...cached, current, source: source?.kind || null,
+      officialAssets: officialSource(source) ? cached.officialAssets : undefined,
       updateAvailable: Boolean(cached.latest) && isNewer(cached.latest, current),
       fromCache: true, nextCheckAt: new Date(checkedAt + CHECK_INTERVAL_MS).toISOString(),
     };
@@ -177,6 +197,7 @@ export async function checkForUpdate({ force = false, now = Date.now() } = {}) {
     const latest = await fetchLatest(source);
     const record = {
       latest: latest.version, notes: latest.notes, url: latest.url,
+      officialAssets: latest.officialAssets,
       checkedAt: new Date(now).toISOString(), error: null, source: source.kind,
     };
     writeCache(record);

@@ -60,9 +60,15 @@ app.on('second-instance', () => {
 
 // ---------------------------------------------------------------- update check
 const updateMessageFile = () => path.join(app.getPath('userData'), 'update-notified.json');
+let checkingUpdates = false;
 
-/** Ask the app's own update checker, then tell the user once per new version. */
+/** Check for a new release and prepare its verified installer in the background. */
 async function checkForUpdates({ quiet = false, force = false } = {}) {
+  if (checkingUpdates) {
+    if (!quiet) await dialog.showMessageBox(win, { type: 'info', title: 'Updates', message: 'Exam Studio is already checking for or downloading an update.' });
+    return null;
+  }
+  checkingUpdates = true;
   try {
     const { checkForUpdate } = await import(pathToFileURL(path.join(here, '..', 'server', 'lib', 'version.js')).href);
     // force is for the Help menu. The check at start-up must not force, or the 24-hour cache
@@ -87,25 +93,57 @@ async function checkForUpdates({ quiet = false, force = false } = {}) {
       return result;
     }
 
-    // Do not nag: one dialog per new version, remembered between launches.
+    let installer = null;
+    const downloader = app.isPackaged ? await import('./update-download.js') : null;
+    const asset = downloader?.selectInstaller(result, {
+      platform: process.platform, arch: process.arch, env: process.env, executable: process.execPath,
+    });
+
+    // One dialog per version, unless a previously announced update is now ready to install.
     let notified = {};
     try { notified = JSON.parse(fs.readFileSync(updateMessageFile(), 'utf8')) || {}; } catch { /* first run */ }
-    if (quiet && notified.version === result.latest) return result;
+    if (quiet && notified.version === result.latest && (!asset || notified.downloaded)) return result;
 
+    let downloadFailed = false;
+    if (asset) {
+      try {
+        installer = await downloader.downloadInstaller(asset, path.join(app.getPath('userData'), 'updates'));
+        log(`verified desktop update ${asset.name}`);
+      } catch (error) {
+        log(`update download failed: ${error.message}`);
+        if (quiet) return result;
+        downloadFailed = true;
+      }
+    }
+    if (quiet && (!win || win.isDestroyed())) return result;
+    const link = typeof result.url === 'string' && /^https?:\/\//i.test(result.url) ? result.url : null;
+    const action = installer ? 'Show download' : link ? 'Get it now' : null;
     const { response } = await dialog.showMessageBox(win, {
-      type: 'info', title: 'A newer version is available',
-      message: `Exam Studio ${result.latest} is available.`,
-      detail: `You are using ${result.current}.${result.notes ? `\n\n${String(result.notes).slice(0, 400)}` : ''}`,
-      buttons: result.url ? ['Get it now', 'Later'] : ['OK'],
-      defaultId: 0, cancelId: result.url ? 1 : 0,
+      type: 'info', title: installer ? 'Update downloaded' : 'A newer version is available',
+      message: installer ? `Exam Studio ${result.latest} is ready to install.` : `Exam Studio ${result.latest} is available.`,
+      detail: [
+        `You are using ${result.current}.`,
+        installer ? 'Exam Studio verified the installer. Open the download folder when you are ready to update.' : '',
+        downloadFailed ? 'The automatic download could not be verified. You can open the release page or try again later.' : '',
+        String(result.notes || '').slice(0, 400),
+      ].filter(Boolean).join('\n\n'),
+      buttons: action ? [action, 'Later'] : ['OK'],
+      defaultId: 0, cancelId: action ? 1 : 0,
     });
-    if (result.url && response === 0) shell.openExternal(result.url);
-    writeFileSyncSafe(updateMessageFile(), JSON.stringify({ version: result.latest, at: new Date().toISOString() }));
+    if (response === 0) {
+      if (installer) shell.showItemInFolder(installer);
+      else if (link) await shell.openExternal(link);
+    }
+    if (!downloadFailed) writeFileSyncSafe(updateMessageFile(), JSON.stringify({
+      version: result.latest, downloaded: Boolean(installer), at: new Date().toISOString(),
+    }));
     return result;
   } catch (error) {
     log(`update check failed: ${error.message}`);
     if (!quiet) await dialog.showMessageBox(win, { type: 'warning', title: 'Updates', message: 'The update check failed.', detail: String(error.message || error) });
     return null;
+  } finally {
+    checkingUpdates = false;
   }
 }
 
@@ -169,7 +207,7 @@ async function boot() {
   process.env.DATA_FILE = path.join(data, 'library.json');
   process.env.SETTINGS_FILE = path.join(data, 'settings.json');
   process.env.HOST = '127.0.0.1';
-process.env.UPDATE_REPO ||= 'wolfrax460/exam-studio';
+  process.env.UPDATE_REPO ||= 'wolfrax460/exam-studio';
   // When run from the source folder, still pick up server/.env if there is one.
   if (!app.isPackaged) process.env.DOTENV_CONFIG_PATH ||= path.join(here, '..', 'server', '.env');
 
@@ -258,6 +296,9 @@ process.env.UPDATE_REPO ||= 'wolfrax460/exam-studio';
 
   // A quiet check a few seconds after the window is up, so start-up is never held up by it.
   setTimeout(() => { checkForUpdates({ quiet: true }).catch(() => {}); }, 6000);
+  if (app.isPackaged) {
+    setInterval(() => { checkForUpdates({ quiet: true }).catch(() => {}); }, 60 * 60 * 1000).unref();
+  }
 }
 
 app.whenReady().then(() => {

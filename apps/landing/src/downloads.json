@@ -1,73 +1,142 @@
 {
-  "version": "0.2.3",
-  "releaseDate": "2026-11-09",
-  "whatIsNew": "Refreshed Study Guide and graduation-cap branding, rebuilt Windows and Linux apps, and new Mac downloads for Apple silicon and Intel.",
+  "version": "0.2.5",
+  "releaseDate": "2026-11-10",
+  "whatIsNew": "Refreshed sign-in and administration screens, plus automatic verified downloads for future desktop updates.",
   "platforms": [
     {
       "os": "windows",
       "status": "available",
-      "file": "Exam-Studio-Setup-0.2.3.exe",
+      "file": "Exam-Studio-Setup-0.2.5.exe",
       "label": "Windows x64 installer (.exe)",
-      "sizeBytes": 179727018,
-      "sha256": "010b9a57481260e6ae598ad66fcc37bc905743e9a192ed094bc929ae75faed2f",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-Setup-0.2.3.exe"
+      "sizeBytes": 180617205,
+      "sha256": "9beccd638c35959c5f5ac352fbe6c5ab2eca39528a663c26a4a253d5d991b7b7",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-Setup-0.2.5.exe"
     },
     {
       "os": "windows",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-portable.exe",
+      "file": "Exam-Studio-0.2.5-portable.exe",
       "label": "Windows x64 portable (.exe)",
-      "sizeBytes": 179485201,
-      "sha256": "198578fd363da3d2c90340f93bec67ecf3f33eca8823673c771734489f39422b",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-portable.exe"
+      "sizeBytes": 180375373,
+      "sha256": "e4bc2c2647f1467af430da5006fd8e9149c329646af27ec18b61802f4c0b8a57",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-portable.exe"
     },
     {
       "os": "linux",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-linux-x86_64.AppImage",
+      "file": "Exam-Studio-0.2.5-linux-x86_64.AppImage",
       "label": "Linux x64 AppImage",
-      "sizeBytes": 206608103,
-      "sha256": "b1f31f96c09ef524d4d4b98bf2670d6ab478b51e326625c0ee6f8257006fc10d",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-x86_64.AppImage"
+      "sizeBytes": 207547445,
+      "sha256": "9a5848a18eb08d38c92b0c1872b6597c116224e9fab9596909daee343a43c7e2",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-linux-x86_64.AppImage"
     },
     {
       "os": "linux",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-linux-amd64.deb",
+      "file": "Exam-Studio-0.2.5-linux-amd64.deb",
       "label": "Linux x64 Debian package (.deb)",
-      "sizeBytes": 152055212,
-      "sha256": "7a90b39b49303099cdd4a20d5e2faf6251fa5e72dbf001ed2a6c139f779f9047",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-amd64.deb"
+      "sizeBytes": 152483076,
+      "sha256": "33dbabf6628eb49bccf95dc9ea49e43d0732c81976e101a95cc22191ffd1aa63",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-linux-amd64.deb"
     },
     {
       "os": "linux",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-linux-x64.zip",
+      "file": "Exam-Studio-0.2.5-linux-x64.zip",
       "label": "Linux x64 portable (.zip)",
-      "sizeBytes": 202919258,
-      "sha256": "f744617c6f8e2050c8c5fce7c4ccf7cb9d08acdabd07833f51657139dde16868",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-x64.zip"
+      "sizeBytes": 203902258,
+      "sha256": "ef1aa09b5922659e20317431d5f622bf423e215f95e1fbf513b23b72731acab3",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-linux-x64.zip"
     },
     {
       "os": "mac",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-mac-arm64.dmg",
+      "file": "Exam-Studio-0.2.5-mac-arm64.dmg",
       "label": "macOS Apple silicon (.dmg)",
-      "sizeBytes": 209622759,
-      "sha256": "e728b9db7b3f34f283e55e96e4370a93cbd33eb4c9ad7648e2ac8fe57e593025",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-mac-arm64.dmg"
+      "sizeBytes": 210465261,
+      "sha256": "2dd4011058524f8836d9b5a4850387b4f300a9e7dab3e8adac0b99fd5b9ca8d0",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-mac-arm64.dmg"
     },
     {
       "os": "mac",
       "status": "available",
-      "file": "Exam-Studio-0.2.3-mac-x64.dmg",
+      "file": "Exam-Studio-0.2.5-mac-x64.dmg",
       "label": "macOS Intel (.dmg)",
-      "sizeBytes": 216372889,
-      "sha256": "6af8959b15d4d32ec781f4c8314d4556a2d8ecb2398c346ff07fc1be073d93f1",
-      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-mac-x64.dmg"
+      "sizeBytes": 217189294,
+      "sha256": "e4f69133bcb07e158ecea486d274714885f4d4d2cf118bc68d7d25f88b214f2a",
+      "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.5/Exam-Studio-0.2.5-mac-x64.dmg"
     }
   ],
   "previousVersions": [
+    {
+      "version": "0.2.3",
+      "releaseDate": "2026-11-09",
+      "platforms": [
+        {
+          "os": "windows",
+          "status": "available",
+          "file": "Exam-Studio-Setup-0.2.3.exe",
+          "label": "Windows x64 installer (.exe)",
+          "sizeBytes": 179727018,
+          "sha256": "010b9a57481260e6ae598ad66fcc37bc905743e9a192ed094bc929ae75faed2f",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-Setup-0.2.3.exe"
+        },
+        {
+          "os": "windows",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-portable.exe",
+          "label": "Windows x64 portable (.exe)",
+          "sizeBytes": 179485201,
+          "sha256": "198578fd363da3d2c90340f93bec67ecf3f33eca8823673c771734489f39422b",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-portable.exe"
+        },
+        {
+          "os": "linux",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-linux-x86_64.AppImage",
+          "label": "Linux x64 AppImage",
+          "sizeBytes": 206608103,
+          "sha256": "b1f31f96c09ef524d4d4b98bf2670d6ab478b51e326625c0ee6f8257006fc10d",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-x86_64.AppImage"
+        },
+        {
+          "os": "linux",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-linux-amd64.deb",
+          "label": "Linux x64 Debian package (.deb)",
+          "sizeBytes": 152055212,
+          "sha256": "7a90b39b49303099cdd4a20d5e2faf6251fa5e72dbf001ed2a6c139f779f9047",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-amd64.deb"
+        },
+        {
+          "os": "linux",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-linux-x64.zip",
+          "label": "Linux x64 portable (.zip)",
+          "sizeBytes": 202919258,
+          "sha256": "f744617c6f8e2050c8c5fce7c4ccf7cb9d08acdabd07833f51657139dde16868",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-linux-x64.zip"
+        },
+        {
+          "os": "mac",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-mac-arm64.dmg",
+          "label": "macOS Apple silicon (.dmg)",
+          "sizeBytes": 209622759,
+          "sha256": "e728b9db7b3f34f283e55e96e4370a93cbd33eb4c9ad7648e2ac8fe57e593025",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-mac-arm64.dmg"
+        },
+        {
+          "os": "mac",
+          "status": "available",
+          "file": "Exam-Studio-0.2.3-mac-x64.dmg",
+          "label": "macOS Intel (.dmg)",
+          "sizeBytes": 216372889,
+          "sha256": "6af8959b15d4d32ec781f4c8314d4556a2d8ecb2398c346ff07fc1be073d93f1",
+          "url": "https://github.com/wolfrax460/exam-studio/releases/download/v0.2.3/Exam-Studio-0.2.3-mac-x64.dmg"
+        }
+      ]
+    },
     {
       "version": "0.2.1",
       "releaseDate": "2026-10-31",
@@ -102,7 +171,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-31T00:00:00Z",
+  "updatedAt": "2026-11-10T06:16:52Z",
   "packages": [
     {
       "name": "Exam Studio Skill (Claude)",
