@@ -19,7 +19,10 @@ const PASSWORD_RULES = [
   ['Number', (value) => /[0-9]/.test(value)],
 ];
 
-export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSession, resetToken, onRecoveryExit, onInstitution }) {
+export default function Auth({
+  theme, toggleTheme, notice, onDismissNotice, onSession, resetToken, onRecoveryExit,
+  institutionEnabled, institutionIntent, onAccountModeChange,
+}) {
   const [view, setView] = useState(() => {
     if (resetToken) return 'reset';
     const requested = new URLSearchParams(window.location.search).get('auth');
@@ -28,7 +31,7 @@ export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSe
   const [fields, setFields] = useState({ email: '', name: '', password: '' });
   const [visible, setVisible] = useState(false);
   const [showCode, setShowCode] = useState(false);
-  const [institution, setInstitution] = useState(false);
+  const [comingSoon, setComingSoon] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -37,6 +40,7 @@ export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSe
   const showAccounts = view === 'login' || signup;
   const needsNewPassword = signup || view === 'reset';
   const [title, description, submitLabel] = VIEWS[view];
+  const institutionSelected = institutionEnabled && institutionIntent;
 
   function switchView(next, confirmation = '') {
     if (view === 'reset') onRecoveryExit(Boolean(confirmation));
@@ -112,23 +116,42 @@ export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSe
           <header className="auth-form-heading">
             <p className="auth-kicker">Exam Studio account</p>
             <h1 ref={heading} id="auth-title" tabIndex={-1}>{title}</h1>
-            <p>{description}</p>
+            <p>{signup && institutionSelected ? 'Create your Exam Studio account to continue to institution access.' : description}</p>
           </header>
-          {showAccounts && (
+          {showAccounts && (institutionEnabled ? (
+            <fieldset className="auth-account-types" disabled={busy}>
+              <legend>Choose a workspace</legend>
+              <div>
+                <label className={`auth-account${institutionSelected ? '' : ' is-selected'}`}>
+                  <input type="radio" name="account-mode" checked={!institutionSelected} onChange={() => onAccountModeChange(false)} />
+                  <Icon name="user" /><strong>Personal Account</strong>
+                  <small>Access your personal teaching and learning workspace.</small>
+                </label>
+                <label className={`auth-account${institutionSelected ? ' is-selected' : ''}`}>
+                  <input type="radio" name="account-mode" checked={institutionSelected} onChange={() => onAccountModeChange(true)} />
+                  <Icon name="institution" /><strong>Institution Account</strong>
+                  <small>For schools, colleges, universities and training institutions.</small>
+                </label>
+              </div>
+              {institutionSelected && <p className="auth-account-help" role="status">
+                Sign in with your Exam Studio account to access, join, or register an institution.
+              </p>}
+            </fieldset>
+          ) : (
             <fieldset className="auth-account-types">
               <legend>Account type</legend>
               <div>
-                <button type="button" className="auth-account is-selected" aria-pressed="true" onClick={() => setInstitution(false)}>
+                <button type="button" className="auth-account is-selected" aria-pressed="true" onClick={() => setComingSoon(false)}>
                   <Icon name="user" /><strong>Personal Account</strong>
                   <small>Access your personal teaching and learning workspace.</small>
                 </button>
-                <button type="button" className="auth-account" aria-haspopup="dialog" disabled={busy} onClick={() => setInstitution(true)}>
+                <button type="button" className="auth-account" aria-haspopup="dialog" disabled={busy} onClick={() => setComingSoon(true)}>
                   <Icon name="institution" /><strong>Institution Account</strong>
                   <small>For schools, colleges, universities and training institutions.</small>
                 </button>
               </div>
             </fieldset>
-          )}
+          ))}
           <form className="auth-form" onSubmit={submit}>
             {(error || notice) && <p className="auth-feedback is-error" role="alert">{error || notice}</p>}
             {message && <p className="auth-feedback" role="status">{message}</p>}
@@ -164,18 +187,14 @@ export default function Auth({ theme, toggleTheme, notice, onDismissNotice, onSe
           </p>
         </section>
       </div>
-      {institution && (
-        <Modal title={onInstitution ? 'Institution registration' : 'Institution Workspaces — Coming Soon'} onClose={() => setInstitution(false)} className="auth-institution-modal">
+      {!institutionEnabled && comingSoon && (
+        <Modal title="Institution Workspaces — Coming Soon" onClose={() => setComingSoon(false)} className="auth-institution-modal">
           <div className="auth-institution-mark"><Icon name="institution" size={26} /></div>
-          <p className="auth-kicker">{onInstitution ? 'Platform review' : 'Coming soon'}</p>
-          <p>{onInstitution
-            ? 'Use your Exam Studio account to submit an institution for approval. You can check the status of your application from your workspace.'
-            : 'We’re building Exam Studio for educational institutions, including collaborative workspaces, school management and examination administration. This feature is not available yet.'}</p>
+          <p className="auth-kicker">Coming soon</p>
+          <p>We’re building Exam Studio for educational institutions, including collaborative workspaces, school management and examination administration. This feature is not available yet.</p>
           <div className="studio-modal-actions">
-            <button className="primary" type="button" onClick={() => { setInstitution(false); onInstitution?.(); }}>
-              {onInstitution ? (signup ? 'Continue to create account' : 'Continue to sign in') : 'Back to Personal Account'}
-            </button>
-            <button type="button" onClick={() => setInstitution(false)}>Close</button>
+            <button className="primary" type="button" onClick={() => setComingSoon(false)}>Back to Personal Account</button>
+            <button type="button" onClick={() => setComingSoon(false)}>Close</button>
           </div>
         </Modal>
       )}

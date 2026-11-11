@@ -146,6 +146,29 @@ describe('api helpers', () => {
     delete globalThis.window;
   });
 
+  it('keeps the current session when an earlier request returns 401', async () => {
+    auth.setSession({ token: 'old.token.value', user: { email: 'old@example.com' } });
+    let resolveRequest;
+    globalThis.fetch = () => new Promise((resolve) => { resolveRequest = resolve; });
+    const stale = api.get('/institutions/workspaces');
+    auth.setSession({ token: 'new.token.value', user: { email: 'new@example.com' } });
+    resolveRequest(new Response('{}', { status: 401 }));
+    await assert.rejects(stale, { status: 401 });
+    assert.equal(auth.getToken(), 'new.token.value');
+  });
+
+  it('ignores a late 401 from an aborted workspace query', async () => {
+    auth.setSession({ token: 'current.token.value', user: { email: 'person@example.com' } });
+    let resolveRequest;
+    globalThis.fetch = () => new Promise((resolve) => { resolveRequest = resolve; });
+    const controller = new AbortController();
+    const stale = api.get('/institutions/workspace/overview', { signal: controller.signal });
+    controller.abort();
+    resolveRequest(new Response('{}', { status: 401 }));
+    await assert.rejects(stale, { status: 401 });
+    assert.equal(auth.getToken(), 'current.token.value');
+  });
+
   it('rejects a path that already starts with /api/ (prevents /api/api/...)', async () => {
     await assert.rejects(() => api.post('/api/tokens', { name: 'x' }), (error) => {
       assert.equal(error.status, 0);
