@@ -28,7 +28,7 @@
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.8.0",
     "mongodb": "^6.8.0",
-    "mongoose": "^8.5.0",
+    "mongoose": "^8.24.8",
     "multer": "^2.0.0",
     "nodemailer": "^10.4.0",
     "pdf-parse": "^1.1.1",
