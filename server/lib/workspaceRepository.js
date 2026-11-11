@@ -396,6 +396,14 @@ export async function listMembershipsForInstitution(institutionId, { statuses, o
     .map(normalizeMembership);
 }
 
+export async function findInstitutionMembership(institutionId, id) {
+  await initStorage();
+  const doc = isMongo()
+    ? (mongoose.isValidObjectId(id) && await Membership.findOne({ institutionId, _id: id }).lean())
+    : ensureFileCollections().memberships.find((entry) => entry.institutionId === institutionId && entry.id === id);
+  return doc ? normalizeMembership(doc) : null;
+}
+
 export async function listAuthorizedInstitutions(userId) {
   const memberships = (await listMembershipsForUser(userId)).filter(({ status }) => status === 'active');
   const roles = new Map(memberships.map(({ institutionId, role }) => [institutionId, role]));

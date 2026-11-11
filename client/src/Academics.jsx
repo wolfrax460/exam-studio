@@ -90,20 +90,23 @@ function RecordForm({ kind, record, structure, institutionId, onClose, onSaved }
   );
 }
 
-function RecordDetails({ record, structure }) {
+function RecordDetails({ record, structure, kind, roster, isAdmin }) {
   const year = record.yearId && lookup(structure.years, record.yearId)?.name;
   const classroom = record.classId && lookup(structure.classes, record.classId)?.name;
   const section = record.sectionId && lookup(structure.sections, record.sectionId)?.name;
   const subject = record.subjectId && lookup(structure.subjects, record.subjectId)?.name;
   const teacher = record.teacherId && (lookup(structure.teachers, record.teacherId)?.name || 'Inactive teacher');
   const dates = record.startsOn && `${record.startsOn} to ${record.endsOn}`;
-  const details = [year, classroom, section, teacher, record.code, dates].filter(Boolean);
+  const classSections = kind === 'classes' && structure.sections.filter(({ classId }) => classId === record.id).map(({ name }) => name).join(', ');
+  const assigned = kind === 'classes' ? [...new Set(structure.assignments.filter(({ classId }) => classId === record.id)
+    .map(({ teacherId }) => lookup(structure.teachers, teacherId)?.name).filter((name) => name && name !== teacher))].join(', ') : null;
+  const students = roster && `${roster.students} ${isAdmin ? 'active' : 'assigned'} students`;
+  const details = [year, classroom, section, classSections, teacher, assigned, students, record.code, dates].filter(Boolean);
   return <div><strong>{record.name || subject}</strong>{details.length > 0 && <small>{details.join(' · ')}</small>}</div>;
 }
 
-export default function Academics({ institutionId, isAdmin, onChanged, initialKind = 'years', onScopeLost }) {
-  const [kind, setKind] = useState(initialKind);
-  const [editing, setEditing] = useState(null);
+export default function Academics({ institutionId, isAdmin, onChanged, kind, onKindChange, initialCreate, enrollment, openRoster, onScopeLost }) {
+  const [editing, setEditing] = useState(initialCreate ? {} : null);
   const query = useAdminQuery('/institutions/academics', institutionId, undefined, onScopeLost);
   const action = useAdminAction();
   const structure = query.data;
@@ -124,7 +127,7 @@ export default function Academics({ institutionId, isAdmin, onChanged, initialKi
         <button type="button" onClick={query.reload}>Refresh</button>
       </div>
       <div className="admin-filters">
-        <label>Academic records<select value={kind} onChange={(event) => { setKind(event.target.value); action.clear(); }}>
+        <label>Academic records<select value={kind} onChange={(event) => onKindChange(event.target.value)}>
           {Object.entries(kinds).map(([key, [title]]) => <option key={key} value={key}>{title}</option>)}
         </select></label>
         {isAdmin && structure && <button className="primary" type="button" onClick={() => setEditing({})}>Add {label}</button>}
@@ -133,27 +136,31 @@ export default function Academics({ institutionId, isAdmin, onChanged, initialKi
       <LoadState query={query} name="academic records">
         {structure?.[kind].length ? (
           <ul className="institution-status-list" aria-label={title}>
-            {structure[kind].map((record) => (
-              <li key={record.id}>
-                <RecordDetails record={record} structure={structure} />
-                <div className="admin-actions">
-                  {record.id === currentId && <span className="admin-badge is-ok">Active</span>}
-                  {record.archived && <span className="admin-badge">Archived</span>}
-                  {isAdmin && (
-                    <>
-                      {record.id !== currentId && !record.archived && (kind === 'years' || (kind === 'terms' && record.yearId === structure.activeYearId)) && (
-                        <button type="button" disabled={action.pending || query.pending} onClick={() => activate(record)}>Activate</button>
-                      )}
-                      <button type="button" onClick={() => setEditing({ record })}>Edit</button>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
+            {structure[kind].map((record) => {
+              const roster = kind === 'classes' && enrollment.find(({ id }) => id === record.id);
+              return (
+                <li key={record.id}>
+                  <RecordDetails record={record} structure={structure} kind={kind} roster={roster} isAdmin={isAdmin} />
+                  <div className="admin-actions">
+                    {roster && <button type="button" onClick={() => openRoster(record.id)}>View roster</button>}
+                    {record.id === currentId && <span className="admin-badge is-ok">Active</span>}
+                    {record.archived && <span className="admin-badge">Archived</span>}
+                    {isAdmin && (
+                      <>
+                        {record.id !== currentId && !record.archived && (kind === 'years' || (kind === 'terms' && record.yearId === structure.activeYearId)) && (
+                          <button type="button" disabled={action.pending || query.pending} onClick={() => activate(record)}>Activate</button>
+                        )}
+                        <button type="button" onClick={() => setEditing({ record })}>Edit</button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : <EmptyRows>No {title.toLowerCase()} have been added.</EmptyRows>}
       </LoadState>
-      {editing && <RecordForm kind={kind} record={editing.record} structure={structure} institutionId={institutionId}
+      {editing && structure && <RecordForm kind={kind} record={editing.record} structure={structure} institutionId={institutionId}
         onClose={() => { setEditing(null); query.reload(); }} onSaved={() => { setEditing(null); refresh(); }} />}
     </section>
   );
