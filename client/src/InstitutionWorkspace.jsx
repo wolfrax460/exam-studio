@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { post, put } from './api.js';
 import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuery } from './AdminData.jsx';
 import { InstitutionPages, institutionTypes } from './Institutions.jsx';
@@ -7,7 +7,7 @@ import Modal from './ui/Modal.jsx';
 import Icon from './ui/Icon.jsx';
 import brandMark from './assets/exam-studio-mark.svg';
 
-const roles = { admin: 'Institution administrator', teacher: 'Teacher', member: 'Member' };
+export const institutionRoles = { admin: 'Institution administrator', teacher: 'Teacher', member: 'Member' };
 const roleTotals = { admin: 'Administrators', teacher: 'Teachers', member: 'Members' };
 const memberStatus = { invited: 'Invited', active: 'Active', suspended: 'Suspended', removed: 'Removed' };
 const scoped = (institutionId) => ({ headers: { 'X-Institution-Id': institutionId } });
@@ -30,10 +30,7 @@ export function JoinInstitution({ onClose, onJoined }) {
   async function submit(event) {
     event.preventDefault();
     const code = new FormData(event.currentTarget).get('code');
-    let joined;
-    if (await action.run(async () => { joined = await post('/institutions/invitations/accept', { code }); })) {
-      onJoined(joined.institutionId);
-    }
+    if (await action.run(() => post('/institutions/invitations/accept', { code }))) onJoined();
   }
   return (
     <Modal title="Join an institution" onClose={onClose}>
@@ -116,11 +113,11 @@ function EditMember({ institutionId, member, onClose, onSaved }) {
   );
 }
 
-function Directory({ institutionId, isAdmin, onChanged }) {
+function Directory({ institutionId, isAdmin, onChanged, onScopeLost, initialInvite }) {
   const [page, setPage] = useState(1);
-  const [inviting, setInviting] = useState(false);
+  const [inviting, setInviting] = useState(initialInvite);
   const [editing, setEditing] = useState(null);
-  const query = useAdminQuery(`/institutions/members?page=${page}`, institutionId);
+  const query = useAdminQuery(`/institutions/members?page=${page}`, institutionId, undefined, onScopeLost);
   function refresh() {
     query.reload();
     onChanged();
@@ -135,7 +132,7 @@ function Directory({ institutionId, isAdmin, onChanged }) {
         {query.data?.items.length ? <ul className="institution-status-list">
           {query.data.items.map((member) => (
             <li key={member.id}>
-              <div><strong>{member.name}</strong><small>{roles[member.role]}{member.email ? ` · ${member.email}` : ''}</small></div>
+              <div><strong>{member.name}</strong><small>{institutionRoles[member.role]}{member.email ? ` · ${member.email}` : ''}</small></div>
               <div className="admin-actions">
                 <span className={`admin-badge${member.status === 'active' ? ' is-ok' : ''}`}>
                   {member.status === 'invited' && Date.parse(member.inviteExpiresAt) <= Date.now() ? 'Expired invitation' : memberStatus[member.status]}
@@ -156,7 +153,7 @@ function Directory({ institutionId, isAdmin, onChanged }) {
   );
 }
 
-function Overview({ workspace, openDirectory }) {
+function Overview({ workspace, openDirectory, openInvite, openAcademics }) {
   const isAdmin = workspace.role === 'admin';
   return (
     <div className="admin-stack">
@@ -174,17 +171,47 @@ function Overview({ workspace, openDirectory }) {
       </dl>
       <section className="admin-panel">
         <h2>{isAdmin ? 'Get your institution ready' : 'Welcome to your institution'}</h2>
-        <p>{isAdmin ? 'Start by inviting your teaching team and other members to this workspace.' : 'Open the directory to find the members of your institution.'}</p>
-        <button type="button" onClick={openDirectory}>{isAdmin ? 'Manage members' : 'View member directory'}</button>
+        <div className="admin-actions">
+          <button type="button" onClick={openDirectory}>{isAdmin ? 'Manage members' : 'View member directory'}</button>
+          {isAdmin && <>
+            <button type="button" onClick={openInvite}>Invite a member</button>
+            <button type="button" onClick={() => openAcademics('years')}>Set up academic year</button>
+            <button type="button" onClick={() => openAcademics('classes')}>Manage classes</button>
+          </>}
+          {workspace.role === 'teacher' && <button type="button" onClick={() => openAcademics('years')}>View academics</button>}
+        </div>
       </section>
     </div>
   );
 }
 
-export default function InstitutionWorkspace({ institutionId, workspaces, onSwitch }) {
+export default function InstitutionWorkspace({ institutionId, workspaces, onSwitch, onAccessHub, onSignOut }) {
   const [view, setView] = useState('overview');
-  const overview = useAdminQuery('/institutions/workspace/overview', institutionId);
-  const workspace = overview.data;
+  const [academicKind, setAcademicKind] = useState('years');
+  const [scopeLost, setScopeLost] = useState(false);
+  const onScopeLost = useCallback(() => setScopeLost(true), []);
+  const overview = useAdminQuery(scopeLost ? null : '/institutions/workspace/overview', institutionId, undefined, onScopeLost);
+  const workspace = overview.error ? null : overview.data;
+  const directory = view === 'directory' || view === 'invite';
+
+  function openAcademics(kind) {
+    setAcademicKind(kind);
+    setView('academics');
+  }
+
+  if (scopeLost) return (
+    <main className="admin-access">
+      <section className="admin-panel" aria-labelledby="workspace-unavailable">
+        <h1 id="workspace-unavailable">Workspace access is unavailable</h1>
+        <p role="alert">Your access may have changed. Return to Institution Access to refresh your workspaces.</p>
+        <div className="admin-actions">
+          <button type="button" className="primary" onClick={onAccessHub}>Back to Institution Access</button>
+          <button type="button" onClick={() => onSwitch('')}>Continue to Personal Workspace</button>
+        </div>
+      </section>
+    </main>
+  );
+
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
@@ -193,22 +220,29 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
         </div>
         <WorkspacePicker workspaces={workspaces} selected={institutionId} onChange={onSwitch} />
         <nav className="admin-nav institution-workspace-nav" aria-label="Institution navigation">
+          {workspace && <>
           <button type="button" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}><Icon name="dashboard" /> Overview</button>
-          <button type="button" aria-current={view === 'directory' ? 'page' : undefined} onClick={() => setView('directory')}><Icon name="user" /> Member directory</button>
-          {workspace && workspace.role !== 'member' && <button type="button" aria-current={view === 'academics' ? 'page' : undefined} onClick={() => setView('academics')}><Icon name="book" /> Academics</button>}
+          <button type="button" aria-current={directory ? 'page' : undefined} onClick={() => setView('directory')}><Icon name="user" /> Member directory</button>
+          {workspace.role !== 'member' && <button type="button" aria-current={view === 'academics' ? 'page' : undefined} onClick={() => openAcademics('years')}><Icon name="book" /> Academics</button>}
+          </>}
+          <button type="button" onClick={onAccessHub}><Icon name="institution" /> Institution Access</button>
+          <button type="button" onClick={onSignOut}><Icon name="sign-out" /> Sign out</button>
         </nav>
       </aside>
-      <main className="admin-main-content">
+      <main className="admin-main-content institution-workspace-main">
         <header className="admin-page-title">
           <div><p className="admin-kicker">Institution workspace</p><h1>{workspace?.name || 'Institution workspace'}</h1>
             {workspace && <p>{[institutionTypes[workspace.type], workspace.location, workspace.country].filter(Boolean).join(' · ')}</p>}
           </div>
-          {workspace && <span className="admin-badge is-ok">{roles[workspace.role]}</span>}
+          {workspace && <span className="admin-badge is-ok">{institutionRoles[workspace.role]}</span>}
         </header>
         <LoadState query={overview} name="institution workspace">
-          {workspace && view === 'overview' && <Overview workspace={workspace} openDirectory={() => setView('directory')} />}
-          {workspace && view === 'directory' && <Directory institutionId={institutionId} isAdmin={workspace.role === 'admin'} onChanged={overview.reload} />}
-          {workspace && view === 'academics' && <Academics institutionId={institutionId} isAdmin={workspace.role === 'admin'} onChanged={overview.reload} />}
+          {workspace && view === 'overview' && <Overview workspace={workspace} openDirectory={() => setView('directory')}
+            openInvite={() => setView('invite')} openAcademics={openAcademics} />}
+          {workspace && directory && <Directory key={view} institutionId={institutionId} isAdmin={workspace.role === 'admin'}
+            initialInvite={view === 'invite'} onChanged={overview.reload} onScopeLost={onScopeLost} />}
+          {workspace && view === 'academics' && <Academics institutionId={institutionId} isAdmin={workspace.role === 'admin'}
+            initialKind={academicKind} onChanged={overview.reload} onScopeLost={onScopeLost} />}
         </LoadState>
       </main>
     </div>

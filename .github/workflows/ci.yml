@@ -46,4 +46,10 @@ jobs:
         working-directory: client
         run: node --test test/*.test.js
       - run: npm run build
+      - name: Install Chromium for institution entry tests
+        working-directory: client
+        run: npm exec -- playwright install --with-deps chromium
+      - name: Test institution entry in Chromium
+        working-directory: client
+        run: npm run test:institution-entry
       - run: npm --prefix apps/landing run build

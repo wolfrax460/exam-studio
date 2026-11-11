@@ -24,20 +24,13 @@ export function InstitutionPages({ page, setPage, hasMore }) {
   );
 }
 
-export function InstitutionOnboarding({ onClose }) {
-  const [page, setPage] = useState(1);
-  const query = useAdminQuery(`/institutions/requests?page=${page}`);
+export function InstitutionRegistration({ onClose, onSubmitted, onRefreshApplications }) {
   const action = useAdminAction();
 
   async function submit(event) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const application = Object.fromEntries(new FormData(form));
-    if (await action.run(() => post('/institutions/requests', application), 'Application submitted for review.')) {
-      form.reset();
-      setPage(1);
-      query.reload();
-    }
+    const application = Object.fromEntries(new FormData(event.currentTarget));
+    if (await action.run(() => post('/institutions/requests', application))) onSubmitted();
   }
 
   return (
@@ -61,24 +54,47 @@ export function InstitutionOnboarding({ onClose }) {
         </fieldset>
         <div className="admin-actions">
           <button className="primary" type="submit" disabled={action.pending}>{action.pending ? 'Submitting…' : 'Submit application'}</button>
-          <button type="button" onClick={onClose}>Close</button>
+          <button type="button" onClick={onClose}>Cancel</button>
         </div>
         <Feedback feedback={action.feedback} />
+        {action.feedback?.error && <button type="button" className="link" onClick={onRefreshApplications}>Back to applications</button>}
       </form>
-      <section className="institution-requests" aria-label="Your institution requests">
-        <h3>Your institution requests</h3>
-        <LoadState query={query} name="institution requests">
-          {query.data?.items.length ? (
-            <ul className="institution-status-list">
-              {query.data.items.map((item) => (
-                <li key={item.id}><div><strong>{item.name}</strong><small>{institutionTypes[item.type]} · {item.country || 'Country unavailable'}</small></div><Status status={item.status} /></li>
-              ))}
-            </ul>
-          ) : <EmptyRows>You have no institution requests.</EmptyRows>}
-          <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
-        </LoadState>
-      </section>
     </Modal>
+  );
+}
+
+export function InstitutionApplications({ query, page, setPage, workspaces, onOpen }) {
+  return (
+    <section className="admin-panel" aria-labelledby="institution-applications">
+      <div className="admin-section-line">
+        <h2 id="institution-applications">Your applications</h2>
+        <button type="button" onClick={query.reload} disabled={query.pending}>Refresh status</button>
+      </div>
+      <LoadState query={query} name="applications">
+        {query.data?.items.length ? (
+          <ul className="institution-status-list">
+            {query.data.items.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <small>{institutionTypes[item.type]} · {item.country || 'Country unavailable'} · {timestamp(item.createdAt)}</small>
+                  {item.status === 'pending' && <small>A platform administrator will review your application.</small>}
+                  {item.status === 'suspended' && <small>Contact your institution or platform administrator.</small>}
+                  {item.status === 'active' && !workspaces.some(({ id }) => id === item.id) &&
+                    <small>Workspace access will appear here when it is available to your account.</small>}
+                </div>
+                <div className="admin-actions">
+                  <Status status={item.status} />
+                  {item.status === 'active' && workspaces.some(({ id }) => id === item.id) &&
+                    <button type="button" aria-label={`Open approved workspace ${item.name}`} onClick={() => onOpen(item.id)}>Open workspace</button>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <EmptyRows>You haven’t submitted an institution application.</EmptyRows>}
+        <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
+      </LoadState>
+    </section>
   );
 }
 

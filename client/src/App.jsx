@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, del, download } from './api.js';
-import { logout, currentUser, setSession, clearSession } from './auth.js';
+import { logout, currentUser, setSession, clearSession, getToken } from './auth.js';
 import { QUESTION_TYPES, totalMarks, validateExam, questionLines, answerText, validateHandout, handoutStats, estimateHandoutPages, isSectionsExam } from '../../shared/format.js';
 import { validateNotes } from '../../shared/notes-format.js';
 import Settings from './Settings.jsx';
 import Admin from './Admin.jsx';
-import { InstitutionOnboarding } from './Institutions.jsx';
-import InstitutionWorkspace, { JoinInstitution, WorkspacePicker } from './InstitutionWorkspace.jsx';
+import InstitutionAccess from './InstitutionAccess.jsx';
+import InstitutionWorkspace, { WorkspacePicker } from './InstitutionWorkspace.jsx';
 import { useAdminQuery } from './AdminData.jsx';
 import Auth from './Auth.jsx';
 import Agents from './Agents.jsx';
@@ -96,12 +96,9 @@ export default function App() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [showSettings, setShowSettings] = useState(false);
-  const [showInstitutions, setShowInstitutions] = useState(false);
-  const [joiningInstitution, setJoiningInstitution] = useState(false);
+  const [institutionIntent, setInstitutionIntent] = useState(() => new URLSearchParams(window.location.search).get('intent') === 'institution');
   const [selectedInstitution, setSelectedInstitution] = useState('');
   const institutionEnabled = Boolean(health?.institutions?.enabled);
-  const workspaceList = useAdminQuery(user && institutionEnabled ? '/institutions/workspaces' : null, undefined, user?.id);
-  const institutionWorkspaces = workspaceList.data?.items || [];
   const [showAgents, setShowAgents] = useState(false);
   const [showTokens, setShowTokens] = useState(false);
   const [tokens, setTokens] = useState([]);
@@ -127,6 +124,11 @@ export default function App() {
   const [structureMode, setStructureMode] = useState('none'); // 'none', 'library', 'pasted'
 
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetToken') || '');
+  const canLoadWorkspaces = !checking && user && institutionEnabled && !resetToken &&
+    window.location.pathname !== '/admin' && !window.location.pathname.startsWith('/take/');
+  const workspaceList = useAdminQuery(canLoadWorkspaces ? '/institutions/workspaces' : null, undefined, user?.id);
+  const institutionWorkspaces = !workspaceList.pending && !workspaceList.error ? workspaceList.data?.items || [] : [];
+  const showInstitutionAccess = canLoadWorkspaces && institutionIntent && !selectedInstitution;
 
   useEffect(() => {
     if (!resetToken) return;
@@ -167,9 +169,8 @@ export default function App() {
   useEffect(() => {
     const onSignedOut = () => {
       setUser(null);
-      setShowInstitutions(false);
+      changeAccountMode(false);
       setSelectedInstitution('');
-      setJoiningInstitution(false);
       setError('Your session ended. Please sign in again.');
     };
     window.addEventListener('exam-studio:signed-out', onSignedOut);
@@ -283,12 +284,38 @@ export default function App() {
   }
 
   // ---------------------------------------------------------------- auth actions
+  function changeAccountMode(institution) {
+    setInstitutionIntent(institution);
+    const url = new URL(window.location.href);
+    if (institution) url.searchParams.set('intent', 'institution');
+    else if (url.searchParams.get('intent') === 'institution') url.searchParams.delete('intent');
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+  }
+
+  function openInstitutionAccess() {
+    setMobileNav(false);
+    setSelectedInstitution('');
+    changeAccountMode(true);
+    workspaceList.reload();
+  }
+
+  function switchWorkspace(id) {
+    if (id && !institutionWorkspaces.some((workspace) => workspace.id === id)) return;
+    setMobileNav(false);
+    setSelectedInstitution(id);
+    changeAccountMode(false);
+    if (!id && selectedInstitution) workspaceList.reload();
+  }
+
   function acceptSession(session, signup) {
+    if (!institutionEnabled) changeAccountMode(false);
     setSession(session);
     setUser(session.user);
     setError('');
     flash(signup ? 'Account created' : 'Signed in');
-    get('/health').then(setHealth).catch(() => {});
+    get('/health').then((result) => {
+      if (getToken() === session.token) setHealth(result);
+    }).catch(() => {});
   }
 
   function exitRecovery(completed) {
@@ -303,9 +330,8 @@ export default function App() {
     await logout();
     clearSession();
     setUser(null);
-    setShowInstitutions(false);
+    changeAccountMode(false);
     setSelectedInstitution('');
-    setJoiningInstitution(false);
     // Do not leave one person's work on screen for the next person.
     setNotes(null); setExam(null); setCards(null); setHandout(null);
     setNotesSavedId(''); setHandoutSavedId('');
@@ -603,6 +629,8 @@ export default function App() {
   const currentPage = PAGE_META[tab] || PAGE_META.guide;
   const accountName = user?.name || user?.email || 'Account';
   const accountInitial = accountName.trim().charAt(0).toUpperCase();
+  const canOpenAdmin = user?.role === 'admin' ||
+    (health?.user?.id === user?.id && health?.institutions?.canReview);
   const closeMobileNav = () => setMobileNav(false);
   const closeMenu = (event) => { const details = event.currentTarget.closest('details'); if (details) details.open = false; };
 
@@ -616,6 +644,7 @@ export default function App() {
 
   const goNav = (key) => {
     closeMobileNav();
+    if (showInstitutionAccess && key !== 'mcp') changeAccountMode(false);
     setError('');
     if (key === 'guide') { setTab('guide'); return; }
     if (key === 'studio') { setTab('studio'); setStudioView('generate'); return; }
@@ -639,6 +668,7 @@ export default function App() {
     event.preventDefault();
     const query = globalQuery.trim();
     if (!query) return;
+    if (showInstitutionAccess) changeAccountMode(false);
     setError('');
     setLibraryQuery(query);
     setTab('library');
@@ -694,7 +724,7 @@ export default function App() {
               <button type="button" onClick={(event) => { closeMenu(event); setShowSettings(true); }}>Settings</button>
               <button type="button" onClick={(event) => { closeMenu(event); setShowAgents(true); }}>Agents</button>
               <button type="button" onClick={(event) => { closeMenu(event); setShowTokens(true); loadTokens(); }}>API tokens</button>
-              {(user?.role === 'admin' || health?.institutions?.canReview) && <button type="button" onClick={(event) => { closeMenu(event); window.location.assign('/admin'); }}>Admin</button>}
+              {canOpenAdmin && <button type="button" onClick={(event) => { closeMenu(event); window.location.assign('/admin'); }}>Admin</button>}
               <button type="button" className="danger" onClick={(event) => { closeMenu(event); handleLogout(); }}>Sign out</button>
             </div>
           </details>
@@ -731,11 +761,11 @@ export default function App() {
     return <Auth theme={theme} toggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
       notice={error} onDismissNotice={() => setError('')} onSession={acceptSession}
       resetToken={resetToken} onRecoveryExit={exitRecovery}
-      onInstitution={health?.institutions?.enabled ? () => setShowInstitutions(true) : undefined} />;
+      institutionEnabled={institutionEnabled} institutionIntent={institutionIntent} onAccountModeChange={changeAccountMode} />;
   }
   if (user && institutionEnabled && selectedInstitution) {
-    return <InstitutionWorkspace key={selectedInstitution} institutionId={selectedInstitution}
-      workspaces={institutionWorkspaces} onSwitch={setSelectedInstitution} />;
+    return <InstitutionWorkspace key={`${user.id}:${selectedInstitution}`} institutionId={selectedInstitution}
+      workspaces={institutionWorkspaces} onSwitch={switchWorkspace} onAccessHub={openInstitutionAccess} onSignOut={handleLogout} />;
   }
 
   return (
@@ -758,19 +788,16 @@ export default function App() {
                 <span>Teaching Workspace</span>
               </span>
             </div>
-            {institutionEnabled && <WorkspacePicker workspaces={institutionWorkspaces} onChange={(id) => {
-              closeMobileNav();
-              setSelectedInstitution(id);
-            }} />}
+            {institutionEnabled && <WorkspacePicker workspaces={institutionWorkspaces} onChange={switchWorkspace} />}
             <nav className="sidebar-nav" aria-label="Workspace navigation">
               {NAV_ITEMS.map((item) => (
                 <button
                   type="button"
                   key={item.key}
-                  className={activeNav === item.key ? 'on' : ''}
+                  className={!showInstitutionAccess && activeNav === item.key ? 'on' : ''}
                   aria-label={item.label}
                   title={item.label}
-                  aria-current={activeNav === item.key ? 'page' : undefined}
+                  aria-current={!showInstitutionAccess && activeNav === item.key ? 'page' : undefined}
                   onClick={() => goNav(item.key)}
                 >
                   <Icon name={item.icon} size={21} />
@@ -779,12 +806,12 @@ export default function App() {
               ))}
             </nav>
             <nav className="sidebar-nav sidebar-nav-secondary" aria-label="Account navigation">
-              {health?.institutions?.enabled && <button type="button" className="link" onClick={() => { closeMobileNav(); setShowInstitutions(true); }}><Icon name="institution" size={17} /><span className="nav-item-label">Institutions</span></button>}
-              {institutionEnabled && <button type="button" className="link" onClick={() => { closeMobileNav(); setJoiningInstitution(true); }}><Icon name="user" size={17} /><span className="nav-item-label">Join institution</span></button>}
+              {institutionEnabled && <button type="button" className={showInstitutionAccess ? 'on' : 'link'}
+                aria-current={showInstitutionAccess ? 'page' : undefined} aria-label="Institutions" onClick={openInstitutionAccess}><Icon name="institution" size={17} /><span className="nav-item-label">Institutions</span></button>}
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowSettings(true); }}><Icon name="settings" size={17} /><span className="nav-item-label">Settings</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowAgents(true); }}><Icon name="agents" size={17} /><span className="nav-item-label">Agents</span></button>
               <button type="button" className="link" onClick={() => { closeMobileNav(); setShowTokens(true); loadTokens(); }}><Icon name="tokens" size={17} /><span className="nav-item-label">API Tokens</span></button>
-              {(user?.role === 'admin' || health?.institutions?.canReview) && <button type="button" className="link" onClick={() => window.location.assign('/admin')}><Icon name="admin" size={17} /><span className="nav-item-label">Admin</span></button>}
+              {canOpenAdmin && <button type="button" className="link" onClick={() => window.location.assign('/admin')}><Icon name="admin" size={17} /><span className="nav-item-label">Admin</span></button>}
             </nav>
             <div className="sidebar-account">
               <div className="sidebar-user">
@@ -800,7 +827,7 @@ export default function App() {
 
           <div className="main" ref={mainContent}>
             {topBar}
-            {pageHero}
+            {!showInstitutionAccess && pageHero}
           {error && (
             <div className="banner error workspace-error" role="alert">
               <span>{error}</span>
@@ -819,6 +846,9 @@ export default function App() {
             </div>
           )}
 
+            {showInstitutionAccess ? <InstitutionAccess key={user.id} userId={user.id}
+              workspaceQuery={workspaceList} workspaces={institutionWorkspaces} onOpen={switchWorkspace}
+              onPersonal={() => switchWorkspace('')} /> : (
             <div className={'layout' + (tab === 'studio' ? ' layout-wide' : '') + (tab === 'library' ? ' layout-library' : '') + (tab === 'guide' ? ' layout-guide' : '')}>
             {tab !== 'library' && (
             <aside className="panel source">
@@ -995,17 +1025,12 @@ export default function App() {
               )}
             </main>
           </div>
+            )}
           </div>
         </>
       )}
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} onChanged={refreshHealth} update={update} onUpdate={setUpdate} />}
-      {user && health?.institutions?.enabled && showInstitutions && <InstitutionOnboarding onClose={() => setShowInstitutions(false)} />}
-      {user && institutionEnabled && joiningInstitution && <JoinInstitution onClose={() => setJoiningInstitution(false)} onJoined={(id) => {
-        setJoiningInstitution(false);
-        workspaceList.reload();
-        setSelectedInstitution(id);
-      }} />}
       {showAgents && <Agents onClose={() => setShowAgents(false)} onOpenSettings={() => { setShowAgents(false); setShowSettings(true); }} />}
       {showTokens && (
         <div className="modal">

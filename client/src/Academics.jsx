@@ -101,10 +101,10 @@ function RecordDetails({ record, structure }) {
   return <div><strong>{record.name || subject}</strong>{details.length > 0 && <small>{details.join(' · ')}</small>}</div>;
 }
 
-export default function Academics({ institutionId, isAdmin, onChanged }) {
-  const [kind, setKind] = useState('years');
+export default function Academics({ institutionId, isAdmin, onChanged, initialKind = 'years', onScopeLost }) {
+  const [kind, setKind] = useState(initialKind);
   const [editing, setEditing] = useState(null);
-  const query = useAdminQuery('/institutions/academics', institutionId);
+  const query = useAdminQuery('/institutions/academics', institutionId, undefined, onScopeLost);
   const action = useAdminAction();
   const structure = query.data;
   const [title, label] = kinds[kind];
