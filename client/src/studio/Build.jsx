@@ -32,7 +32,7 @@ export default function Build({ module, outcomes, config, onChange, counts, avai
         <h1 className="esx-h1">{noModule ? 'Build your first paper.' : `Build a paper from ${module.code}.`}</h1>
         <p className="esx-lede">
           {noModule
-            ? 'Generate questions in Generate to import their auto-markable items, or create a module under Modules and type your own. Then choose the coverage and sit or print the paper.'
+            ? 'Generate an exam in Create to reuse its objective questions, or add your own questions in Modules. Then choose what to include and practise or print the paper.'
             : `${module.title}. Choose the coverage, set the format, then sit the paper or print it for the class. Every question is marked automatically.`}
         </p>
       </div>

@@ -75,6 +75,7 @@ export default function App() {
   const [tab, setTab] = useState('guide');
   const [guideMode, setGuideMode] = useState('notes');
   const [studioView, setStudioView] = useState('generate');
+  const [examSavedId, setExamSavedId] = useState('');
   const [genMode, setGenMode] = useState('questions');
   const [text, setText] = useState('');
   const [fileInfo, setFileInfo] = useState('');
@@ -333,7 +334,7 @@ export default function App() {
     changeAccountMode(false);
     setSelectedInstitution('');
     // Do not leave one person's work on screen for the next person.
-    setNotes(null); setExam(null); setCards(null); setHandout(null);
+    setNotes(null); setExam(null); setCards(null); setHandout(null); setExamSavedId('');
     setNotesSavedId(''); setHandoutSavedId('');
     setText(''); setFileInfo(''); setFocus('');
     setProject(BLANK_PROJECT);
@@ -482,6 +483,7 @@ export default function App() {
     let avoid = [];
     if (examOpts.avoidSaved) avoid = await savedQuestionTexts();
     setExam(await post('/exams/generate', { ...body(), ...examOpts, avoid }));
+    setExamSavedId('');
     setTab('studio');
     setStudioView('generate');
   });
@@ -541,15 +543,29 @@ export default function App() {
     const saved = await post('/library', { kind, data, title: outputTitle(kind, data) });
     if (kind === 'notes') { setNotesSavedId(saved.id); rememberOutput('notes', saved.id); }
     if (kind === 'handout') { setHandoutSavedId(saved.id); rememberOutput('handout', saved.id); }
+    if (kind === 'exam') setExamSavedId(saved.id);
     flash('Saved to library');
   });
+
+  function editExam(next) {
+    setExam(next);
+    setExamSavedId('');
+  }
+
+  function openSavedPaper(item) {
+    setExam(item.data);
+    setExamSavedId(item.id);
+    setTab('studio');
+    setStudioView('generate');
+    setGenMode('questions');
+  }
 
   // The two AI generators live inside Paper studio now. Their handlers, settings and result
   // views are the same ones the old Exam and Flashcards tabs used.
   const examOutput = exam && (isSectionsExam(exam)
-    ? <SectionsExamView exam={exam} setExam={setExam} target={examOpts.totalMarks} project={project} busy={busy}
+    ? <SectionsExamView exam={exam} setExam={editExam} target={examOpts.totalMarks} project={project} busy={busy}
       run={run} onSave={() => save('exam', exam)} />
-    : <ExamView exam={exam} setExam={setExam} target={examOpts.totalMarks} project={project} busy={busy}
+    : <ExamView exam={exam} setExam={editExam} target={examOpts.totalMarks} project={project} busy={busy}
       run={run} onSave={() => save('exam', exam)} />);
 
   const cardsOutput = cards && <CardsView cards={cards} onSave={() => save('flashcards', cards)} />;
@@ -599,7 +615,7 @@ export default function App() {
         <>
           {!exam && <Empty ready={sourceReady} what="an exam" />}
           {examOutput}
-          {exam && <div id="publish-online"><PublishOnline exam={exam} /></div>}
+          {exam && <div id="publish-online"><PublishOnline key={examSavedId || 'draft'} exam={exam} libraryId={examSavedId} onSaved={setExamSavedId} /></div>}
         </>
       )}
 
@@ -653,11 +669,12 @@ export default function App() {
     if (key === 'modules') { setTab('studio'); setStudioView('modules'); return; }
     if (key === 'bank') { setTab('studio'); setStudioView('bank'); return; }
     if (key === 'exams') {
-      setTab('studio'); setStudioView('generate');
+      setTab('studio'); setStudioView(exam ? 'generate' : 'papers');
+      setGenMode('questions');
+      if (!exam) return;
       window.setTimeout(() => {
         const target = document.getElementById('publish-online');
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        else flash('Generate a paper first, then publish it from the Paper Studio output.');
       }, 120);
       return;
     }
@@ -1003,13 +1020,15 @@ export default function App() {
                 </section>
               )}
 
-              {tab === 'studio' && (
-                <section>
+              {user && (
+                <section hidden={tab !== 'studio'} key={user.id}>
                   <PaperStudio
                     exam={exam}
                     project={project}
                     view={studioView}
+                    visible={tab === 'studio'}
                     onView={setStudioView}
+                    onOpenPaper={openSavedPaper}
                     generatePanel={generatePanel}
                     flashcardsPanel={flashcardsPanel}
                   />
@@ -1018,7 +1037,7 @@ export default function App() {
 
               {tab === 'library' && (
                 <LibraryTab initialQuery={libraryQuery} onOpen={(item) => {
-                  if (item.kind === 'exam') { setExam(item.data); setTab('studio'); setStudioView('generate'); }
+                  if (item.kind === 'exam') openSavedPaper(item);
                   if (item.kind === 'notes') { setNotes(item.data); setNotesSavedId(item.id); rememberOutput('notes', item.id); setTab('guide'); setGuideMode('notes'); }
                   if (item.kind === 'flashcards') { setCards(item.data); setTab('studio'); setStudioView('flashcards'); }
                   if (item.kind === 'handout') { setHandout(item.data); setHandoutSavedId(item.id); rememberOutput('handout', item.id); setTab('guide'); setGuideMode('handout'); }

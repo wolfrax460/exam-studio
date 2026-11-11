@@ -465,6 +465,70 @@ it('uses real enrollment, academic records and staff profiles in the institution
   await capture(learnerPage, '23-mobile-learner-lesson');
 });
 
+it('navigates Paper Studio, reopens a saved paper, and reviews a written response', { timeout: 70_000 }, async (t) => {
+  const saved = await call(api.base, '/api/library', { method: 'POST', token: owner.token, body: {
+    kind: 'exam', title: 'Photosynthesis reasoning', data: { title: 'Photosynthesis reasoning', layout: 'sections-a-e',
+      sections: [{ id: 'D', kind: 'short_answer', title: 'Reasoning', marks: 3, marksPerItem: 3, items: [{
+        text: 'Explain how sunlight is used by plants.', answer: 'Photosynthesis converts light energy into chemical energy.',
+        markingPoints: [{ point: 'Explains conversion and storage', marks: 3 }],
+      }] }],
+    },
+  } });
+  assert.equal(saved.status, 201);
+  const published = await call(api.base, `/api/exams/${saved.body.id}/publish`, {
+    method: 'POST', token: owner.token, body: { durationMinutes: 30, showResultsMode: 'immediately', requireName: false },
+  });
+  assert.equal(published.status, 201, JSON.stringify(published.body));
+  const page = await newPage(t);
+  await signIn(page, owner, false);
+  await heading(page, 'Study Guide').waitFor();
+  await button(page, 'Paper Studio').click();
+  const tablist = page.getByRole('tablist', { name: 'Paper Studio views' });
+  const tab = (name) => tablist.getByRole('tab', { name, exact: true });
+  await tab('Create').focus();
+  await tab('Create').press('ArrowRight');
+  assert.equal(await tab('Question Bank').getAttribute('aria-selected'), 'true');
+  await page.getByLabel('Question collection').waitFor();
+  await tab('Question Bank').press('End');
+  assert.equal(await tab('Flashcards').getAttribute('aria-selected'), 'true');
+  await tab('Modules').click();
+  await heading(page, 'Teach another module.').waitFor();
+  await tab('My Papers').click();
+  await heading(page, 'Saved papers').waitFor();
+  await page.getByLabel('Search saved papers').fill('Photosynthesis');
+  await capture(page, '25-paper-my-papers');
+  await button(page, 'Photosynthesis reasoning').click();
+  await heading(page, 'Publish online').waitFor();
+  await capture(page, '26-paper-after-desktop');
+
+  const student = await newPage(t, { width: 390, height: 844 });
+  await student.goto(`${api.base}/take/${published.body.publication.shareCode}`);
+  await button(student, 'Start exam').click();
+  await student.getByLabel('Your answer').fill('Plants use sunlight to make energy-rich sugars.');
+  student.once('dialog', (confirm) => confirm.accept());
+  await button(student, 'Submit').click();
+  await student.getByText('Written answers are awaiting teacher review.').waitFor();
+  await button(page, 'Refresh results').click();
+  await button(page, 'Review answers').click();
+  const review = page.getByRole('dialog', { name: 'Review exam attempt' });
+  await review.getByText('Plants use sunlight to make energy-rich sugars.', { exact: true }).waitFor();
+  await capture(page, '27-written-answer-review');
+  await review.getByLabel('Marks out of 3').fill('2.5');
+  await review.getByLabel('Feedback').fill('Correct energy conversion. Explain the role of chlorophyll.');
+  await button(review, 'Save mark').click();
+  await review.getByText('Teacher reviewed', { exact: true }).waitFor();
+  await button(student, 'Refresh result').click();
+  await student.getByText('2.5 / 3', { exact: true }).waitFor();
+
+  const mobile = await newPage(t, { width: 390, height: 844 });
+  await signIn(mobile, owner, false);
+  await heading(mobile, 'Study Guide').waitFor();
+  await button(mobile, 'Open navigation').click();
+  await button(mobile, 'Paper Studio').click();
+  await mobile.getByRole('tablist', { name: 'Paper Studio views' }).waitFor();
+  await capture(mobile, '28-paper-after-mobile');
+});
+
 it('preserves the Coming Soon fallback and personal sign-in when disabled', { timeout: 35_000 }, async (t) => {
   process.env.EXAM_STUDIO_INSTITUTIONS_ENABLED = 'false';
   t.after(() => { process.env.EXAM_STUDIO_INSTITUTIONS_ENABLED = 'true'; });
