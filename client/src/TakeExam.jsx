@@ -87,13 +87,17 @@ export default function TakeExam({ shareCode }) {
     } catch (e) { submission.current = false; setError(e.message); }
   };
 
+  const readResult = async () => {
+    // Keep the bearer token out of URLs and browser history.
+    const next = await api(`/api/take/attempts/${attemptId}/result`, { headers: { 'x-attempt-token': token } });
+    setResult(next);
+    return next;
+  };
+
   const pollResult = async () => {
     for (let i = 0; i < 40; i++) {
       try {
-        // The attempt token is a bearer credential: it goes in a header, never in the URL, so it
-        // cannot end up in browser history, a Referer header or a server access log.
-        const r = await api(`/api/take/attempts/${attemptId}/result`, { headers: { 'x-attempt-token': token } });
-        setResult(r);
+        const r = await readResult();
         if (r.status === 'marked' || r.status === 'marking_failed') return;
       } catch {}
       await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -130,6 +134,11 @@ export default function TakeExam({ shareCode }) {
               : result?.status === 'marked' ? <p>Your result will appear when the exam owner releases it.</p> : <p>Marking your answers…</p>}
           {result?.feedback?.map((f) => f.needsReview ? null : <p key={f.questionId} className="take-feedback">{f.feedback}</p>)}
           <p className="take-muted">{result?.markingProgress ? `${result.markingProgress.done} of ${result.markingProgress.total} answers marked` : ''}</p>
+          <button className="take-secondary" type="button" onClick={() => {
+            setError('');
+            readResult().catch((failure) => setError(failure.message));
+          }}>Refresh result</button>
+          {error && <p className="take-error" role="alert">{error}</p>}
         </div>
       </main>
     );
