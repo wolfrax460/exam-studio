@@ -145,7 +145,7 @@ describe('Online Exams - Server Gaps', () => {
       // 1) First submission succeeds with a score and a final status.
       const res1 = await call(api.base, `/api/take/attempts/${attemptId}/submit`, { method: 'POST', body: { attemptToken } });
       assert.equal(res1.status, 200);
-      assert.equal(res1.body.status, 'submitted');
+      assert.equal(res1.body.status, 'marked');
       assert.ok(typeof res1.body.score === 'object');
       const firstSubmittedAt = res1.body.submittedAt;
       const firstScore = JSON.stringify(res1.body.score);
@@ -154,9 +154,8 @@ describe('Online Exams - Server Gaps', () => {
       const res2 = await call(api.base, `/api/take/attempts/${attemptId}/submit`, { method: 'POST', body: { attemptToken } });
       assert.equal(res2.status, 200);
 
-      // 3) Both responses indicate the attempt is submitted.
-      assert.equal(res1.body.status, 'submitted');
-      assert.equal(res2.body.status, 'submitted');
+      // 3) With no written responses to queue, both replies report a finished mark.
+      assert.equal(res2.body.status, 'marked');
 
       // 4) The original submittedAt timestamp is unchanged by a repeat submit.
       assert.equal(res2.body.submittedAt, firstSubmittedAt);

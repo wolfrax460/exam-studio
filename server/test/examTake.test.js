@@ -38,7 +38,7 @@ describe('sectioned question flattening', () => {
     assert.deepEqual(qs.map((q) => q.kind), ['mcq', 'short_answer']);
     assert.deepEqual(qs.map((q) => q.sectionId), ['A', 'B']);
     assert.deepEqual(qs.map((q) => q.marks), [1, 2]);
-    const score = markObjective(qs, { 'A-1': 'A' });
+    const score = markObjective(qs, { 'A-1': 'A', 'B-1': 'Written response' });
     assert.equal(score.perQuestion.find((p) => p.questionId === 'A-1').awarded, 1);
     assert.equal(score.perQuestion.find((p) => p.questionId === 'B-1').needsReview, true);
   });
@@ -46,7 +46,7 @@ describe('sectioned question flattening', () => {
 
 describe('objective marking', () => {
   it('marks mcq and true/false without AI', () => {
-    const score = markObjective(questionList(exam), { 'A-1': 'B', 'A-2': 'True' });
+    const score = markObjective(questionList(exam), { 'A-1': 'B', 'A-2': 'True', 'B-1': 'Written response' });
     assert.equal(score.total, 2);
     assert.equal(score.perQuestion.find((p) => p.questionId === 'B-1').needsReview, true);
   });
