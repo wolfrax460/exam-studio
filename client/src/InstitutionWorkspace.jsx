@@ -1,14 +1,16 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { post, put } from './api.js';
 import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuery } from './AdminData.jsx';
 import { InstitutionPages, institutionTypes } from './Institutions.jsx';
 import Academics from './Academics.jsx';
+import InstitutionDashboard from './InstitutionDashboard.jsx';
+import { StaffDirectory, StaffProfileDialog, Students } from './InstitutionPeople.jsx';
 import Modal from './ui/Modal.jsx';
 import Icon from './ui/Icon.jsx';
 import brandMark from './assets/exam-studio-mark.svg';
+import './theme/institution.css';
 
 export const institutionRoles = { admin: 'Institution administrator', teacher: 'Teacher', member: 'Member' };
-const roleTotals = { admin: 'Administrators', teacher: 'Teachers', member: 'Members' };
 const memberStatus = { invited: 'Invited', active: 'Active', suspended: 'Suspended', removed: 'Removed' };
 const scoped = (institutionId) => ({ headers: { 'X-Institution-Id': institutionId } });
 
@@ -47,7 +49,7 @@ export function JoinInstitution({ onClose, onJoined }) {
   );
 }
 
-function InviteMember({ institutionId, onClose, onSaved }) {
+function InviteMember({ institutionId, defaultRole, onClose, onSaved }) {
   const action = useAdminAction();
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -73,7 +75,7 @@ function InviteMember({ institutionId, onClose, onSaved }) {
         <form className="admin-form" onSubmit={submit}>
           <p>The recipient needs an existing Exam Studio account.</p>
           <label>Account email<input name="email" type="email" required maxLength={254} /></label>
-          <label>Institution role<select name="role" defaultValue="member"><option value="member">Member</option><option value="teacher">Teacher</option></select></label>
+          <label>Institution role<select name="role" defaultValue={defaultRole}><option value="member">Member</option><option value="teacher">Teacher</option></select></label>
           <Feedback feedback={action.feedback} />
           <div className="admin-actions">
             <button type="submit" className="primary" disabled={action.pending}>Create invitation</button>
@@ -113,10 +115,11 @@ function EditMember({ institutionId, member, onClose, onSaved }) {
   );
 }
 
-function Directory({ institutionId, isAdmin, onChanged, onScopeLost, initialInvite }) {
+function Directory({ institutionId, isAdmin, onChanged, onScopeLost, initialInvite, inviteRole = 'member' }) {
   const [page, setPage] = useState(1);
   const [inviting, setInviting] = useState(initialInvite);
   const [editing, setEditing] = useState(null);
+  const [staffProfile, setStaffProfile] = useState(null);
   const query = useAdminQuery(`/institutions/members?page=${page}`, institutionId, undefined, onScopeLost);
   function refresh() {
     query.reload();
@@ -140,63 +143,65 @@ function Directory({ institutionId, isAdmin, onChanged, onScopeLost, initialInvi
                 {isAdmin && member.role !== 'admin' && <button type="button" onClick={() => setEditing(member)}>
                   {member.status === 'invited' ? 'Revoke invitation' : 'Manage'}
                 </button>}
+                {isAdmin && member.status !== 'invited' && <button type="button" aria-label={`Staff profile for ${member.name}`}
+                  onClick={() => setStaffProfile(member)}>Staff profile</button>}
               </div>
             </li>
           ))}
         </ul> : <EmptyRows>No members to show.</EmptyRows>}
         <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
       </LoadState>
-      {inviting && <InviteMember institutionId={institutionId} onClose={() => setInviting(false)} onSaved={refresh} />}
+      {inviting && <InviteMember institutionId={institutionId} defaultRole={inviteRole} onClose={() => setInviting(false)} onSaved={refresh} />}
       {editing && <EditMember institutionId={institutionId} member={editing} onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); refresh(); }} />}
+      {staffProfile && <StaffProfileDialog institutionId={institutionId} member={staffProfile}
+        onClose={() => setStaffProfile(null)} onSaved={() => { setStaffProfile(null); refresh(); }} />}
     </section>
   );
 }
 
-function Overview({ workspace, openDirectory, openInvite, openAcademics }) {
-  const isAdmin = workspace.role === 'admin';
-  return (
-    <div className="admin-stack">
-      <section className="admin-panel">
-        <h2>Academic calendar</h2>
-        <dl className="admin-key-values">
-          <div><dt>Academic year</dt><dd>{workspace.academicYear || 'No active academic year'}</dd></div>
-          <div><dt>Current term</dt><dd>{workspace.academicTerm || 'No active term'}</dd></div>
-        </dl>
-      </section>
-      <dl className="admin-metric-grid">
-        {Object.entries(workspace.counts).map(([role, count]) => (
-          <div className="admin-metric" key={role}><div><dt>{roleTotals[role]}</dt><dd>{count}</dd><small>Active memberships</small></div></div>
-        ))}
-      </dl>
-      <section className="admin-panel">
-        <h2>{isAdmin ? 'Get your institution ready' : 'Welcome to your institution'}</h2>
-        <div className="admin-actions">
-          <button type="button" onClick={openDirectory}>{isAdmin ? 'Manage members' : 'View member directory'}</button>
-          {isAdmin && <>
-            <button type="button" onClick={openInvite}>Invite a member</button>
-            <button type="button" onClick={() => openAcademics('years')}>Set up academic year</button>
-            <button type="button" onClick={() => openAcademics('classes')}>Manage classes</button>
-          </>}
-          {workspace.role === 'teacher' && <button type="button" onClick={() => openAcademics('years')}>View academics</button>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-export default function InstitutionWorkspace({ institutionId, workspaces, onSwitch, onAccessHub, onSignOut }) {
+export default function InstitutionWorkspace({ institutionId, workspaces, onSwitch, onAccessHub, onSignOut, theme, toggleTheme }) {
   const [view, setView] = useState('overview');
-  const [academicKind, setAcademicKind] = useState('years');
+  const [academic, setAcademic] = useState({ kind: 'years', create: false });
+  const [studentList, setStudentList] = useState({ classId: '', create: false });
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileToggle = useRef(null);
+  const mobileClose = useRef(null);
+  useEffect(() => { if (mobileOpen) mobileClose.current?.focus(); }, [mobileOpen]);
   const [scopeLost, setScopeLost] = useState(false);
   const onScopeLost = useCallback(() => setScopeLost(true), []);
   const overview = useAdminQuery(scopeLost ? null : '/institutions/workspace/overview', institutionId, undefined, onScopeLost);
   const workspace = overview.error ? null : overview.data;
-  const directory = view === 'directory' || view === 'invite';
+  const directory = ['directory', 'invite', 'invite-teacher'].includes(view);
+  const isAdmin = workspace?.role === 'admin';
+  const isStaff = isAdmin || workspace?.role === 'teacher';
 
-  function openAcademics(kind) {
-    setAcademicKind(kind);
-    setView('academics');
+  function open(next) {
+    setView(next);
+    if (mobileOpen) mobileToggle.current?.focus();
+    setMobileOpen(false);
+  }
+
+  function closeMenu() {
+    setMobileOpen(false);
+    mobileToggle.current?.focus();
+  }
+
+  function openAcademics(kind, create = false) {
+    setAcademic({ kind, create });
+    open('academics');
+  }
+
+  function openStudents(classId = '', create = false) {
+    setStudentList({ classId, create });
+    open('students');
+  }
+
+  function nav(label, icon, active, onClick) {
+    return <button type="button" title={label} aria-label={label} aria-current={active ? 'page' : undefined} onClick={onClick}>
+      <Icon name={icon} /><span>{label}</span>
+    </button>;
   }
 
   if (scopeLost) return (
@@ -213,38 +218,83 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
   );
 
   return (
-    <div className="admin-shell">
-      <aside className="admin-sidebar">
+    <div className={`admin-shell institution-shell${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`}
+      onKeyDown={(event) => { if (mobileOpen && event.key === 'Escape') closeMenu(); }}>
+      {mobileOpen && <button type="button" tabIndex={-1} className="institution-nav-scrim" aria-label="Dismiss institution navigation" onClick={closeMenu} />}
+      <aside className="admin-sidebar institution-sidebar" id="institution-sidebar">
         <div className="admin-sidebar-head">
           <div className="admin-brand"><img src={brandMark} alt="" width="40" height="40" /><div><strong>Exam Studio</strong><small>Institution workspace</small></div></div>
+          <button type="button" className="institution-nav-toggle institution-nav-mobile" ref={mobileClose}
+            aria-label="Close institution navigation" onClick={closeMenu}><Icon name="close" /></button>
         </div>
-        <WorkspacePicker workspaces={workspaces} selected={institutionId} onChange={onSwitch} />
         <nav className="admin-nav institution-workspace-nav" aria-label="Institution navigation">
           {workspace && <>
-          <button type="button" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => setView('overview')}><Icon name="dashboard" /> Overview</button>
-          <button type="button" aria-current={directory ? 'page' : undefined} onClick={() => setView('directory')}><Icon name="user" /> Member directory</button>
-          {workspace.role !== 'member' && <button type="button" aria-current={view === 'academics' ? 'page' : undefined} onClick={() => openAcademics('years')}><Icon name="book" /> Academics</button>}
+            <p>Workspace</p>
+            {nav('Dashboard', 'dashboard', view === 'overview', () => open('overview'))}
+            {isStaff && <>
+              <p>Academic management</p>
+              {nav('Academic calendar', 'clock', view === 'academics' && ['years', 'terms'].includes(academic.kind), () => openAcademics('years'))}
+              {nav('Classes', 'modules', view === 'academics' && ['classes', 'sections'].includes(academic.kind), () => openAcademics('classes'))}
+              {nav('Subjects', 'book', view === 'academics' && ['subjects', 'assignments'].includes(academic.kind), () => openAcademics('subjects'))}
+            </>}
+            <p>People</p>
+            {isStaff && nav('Students', 'user', view === 'students', () => openStudents())}
+            {isStaff && nav('Teachers', 'book', view === 'teachers', () => open('teachers'))}
+            {isAdmin && nav('Staff', 'institution', view === 'staff', () => open('staff'))}
+            {nav('Member directory', 'clipboard', view === 'directory', () => open('directory'))}
+            {isAdmin && nav('Invitations', 'tokens', view.startsWith('invite'), () => open('invite'))}
           </>}
-          <button type="button" onClick={onAccessHub}><Icon name="institution" /> Institution Access</button>
-          <button type="button" onClick={onSignOut}><Icon name="sign-out" /> Sign out</button>
+          <p>Account</p>
+          {nav('Institution Access', 'institution', false, onAccessHub)}
+          {nav('Sign out', 'sign-out', false, onSignOut)}
         </nav>
       </aside>
-      <main className="admin-main-content institution-workspace-main">
-        <header className="admin-page-title">
-          <div><p className="admin-kicker">Institution workspace</p><h1>{workspace?.name || 'Institution workspace'}</h1>
-            {workspace && <p>{[institutionTypes[workspace.type], workspace.location, workspace.country].filter(Boolean).join(' · ')}</p>}
-          </div>
-          {workspace && <span className="admin-badge is-ok">{institutionRoles[workspace.role]}</span>}
+      <div className="admin-workspace">
+        <header className="admin-topbar institution-topbar">
+          <button type="button" className="institution-nav-toggle institution-nav-desktop" aria-label="Toggle institution navigation"
+            aria-controls="institution-sidebar" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}><Icon name="menu" /></button>
+          <button type="button" className="institution-nav-toggle institution-nav-mobile" ref={mobileToggle} aria-label="Toggle institution navigation"
+            aria-controls="institution-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><Icon name="menu" /></button>
+          <span className="admin-topbar-label"><Icon name="institution" /> Institution workspace</span>
+          <WorkspacePicker workspaces={workspaces} selected={institutionId} onChange={onSwitch} />
+          <button type="button" className="institution-nav-toggle" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={toggleTheme}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
         </header>
-        <LoadState query={overview} name="institution workspace">
-          {workspace && view === 'overview' && <Overview workspace={workspace} openDirectory={() => setView('directory')}
-            openInvite={() => setView('invite')} openAcademics={openAcademics} />}
-          {workspace && directory && <Directory key={view} institutionId={institutionId} isAdmin={workspace.role === 'admin'}
-            initialInvite={view === 'invite'} onChanged={overview.reload} onScopeLost={onScopeLost} />}
-          {workspace && view === 'academics' && <Academics institutionId={institutionId} isAdmin={workspace.role === 'admin'}
-            initialKind={academicKind} onChanged={overview.reload} onScopeLost={onScopeLost} />}
-        </LoadState>
-      </main>
+        <main className="admin-main-content institution-workspace-main">
+          <header className="admin-page-title institution-hero">
+            <div className="institution-identity">
+              <div className="institution-emblem" aria-hidden="true">
+                {workspace ? workspace.name.split(/\s+/).slice(0, 2).map((word) => Array.from(word)[0]).join('').toLocaleUpperCase()
+                  : <Icon name="institution" size={28} />}
+              </div>
+              <div><p className="admin-kicker">Institution workspace</p><h1>{workspace?.name || 'Institution workspace'}</h1>
+                {workspace && <p>{[institutionTypes[workspace.type], workspace.location, workspace.country].filter(Boolean).join(' · ')}</p>}
+              </div>
+            </div>
+            {workspace && <div className="institution-hero-meta">
+              <span className="admin-badge is-ok">{institutionRoles[workspace.role]}</span>
+              <dl><div><dt>Academic year</dt><dd>{workspace.academicYear || 'No active year'}</dd></div>
+                <div><dt>Current term</dt><dd>{workspace.academicTerm || 'No active term'}</dd></div></dl>
+            </div>}
+          </header>
+          <LoadState query={overview} name="institution workspace">
+            {workspace && view === 'overview' && <InstitutionDashboard workspace={workspace} openDirectory={() => open('directory')}
+              openInvite={() => open('invite-teacher')} openAcademics={openAcademics} openStudents={openStudents} />}
+            {workspace && directory && <Directory key={view} institutionId={institutionId} isAdmin={isAdmin}
+              initialInvite={view !== 'directory'} inviteRole={view === 'invite-teacher' ? 'teacher' : 'member'}
+              onChanged={overview.reload} onScopeLost={onScopeLost} />}
+            {isStaff && view === 'academics' && <Academics key={`${academic.kind}:${academic.create}`} institutionId={institutionId} isAdmin={isAdmin}
+              kind={academic.kind} onKindChange={openAcademics} initialCreate={academic.create} enrollment={workspace.dashboard.enrollment} openRoster={openStudents}
+              onChanged={overview.reload} onScopeLost={onScopeLost} />}
+            {isStaff && view === 'students' && <Students key={`${studentList.classId}:${studentList.create}`} institutionId={institutionId}
+              isAdmin={isAdmin} initialClass={studentList.classId} startAdding={studentList.create}
+              onChanged={overview.reload} onScopeLost={onScopeLost} />}
+            {((isStaff && view === 'teachers') || (isAdmin && view === 'staff')) && <StaffDirectory key={view} institutionId={institutionId}
+              kind={view} isAdmin={isAdmin} onInvite={() => open('invite-teacher')} onMemberships={() => open('directory')}
+              onAssignments={() => openAcademics('assignments')} onScopeLost={onScopeLost} />}
+          </LoadState>
+        </main>
+      </div>
     </div>
   );
 }

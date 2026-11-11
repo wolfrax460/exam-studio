@@ -40,17 +40,20 @@ export default function InstitutionAccess({ userId, workspaceQuery, workspaces, 
             <button type="button" onClick={workspaceQuery.reload} disabled={workspaceQuery.pending}>Refresh workspaces</button>
           </div>
           <LoadState query={{ ...workspaceQuery, data: workspaceQuery.pending ? undefined : workspaceQuery.data }}
-            name="institution access" loading="Checking your institution access…">
+            name="active institution memberships" loading="Checking your institution access…">
             {workspaces.length ? (
-              <ul className="institution-status-list">
-                {workspaces.map(({ id, name, role }) => (
-                  <li key={id}>
-                    <div><strong>{name}</strong><small>{institutionRoles[role]}</small></div>
-                    <button type="button" className="primary" aria-label={`Open workspace ${name}`} onClick={() => onOpen(id)}>Open workspace</button>
-                  </li>
-                ))}
-              </ul>
-            ) : <EmptyRows>You don’t have access to an institution workspace yet. Use an invitation code or register an institution below.</EmptyRows>}
+              <>
+                <p className="admin-muted" role="status">Active membership verified for {workspaces.length} {workspaces.length === 1 ? 'institution' : 'institutions'}.</p>
+                <ul className="institution-status-list">
+                  {workspaces.map(({ id, name, role }) => (
+                    <li key={id}>
+                      <div><strong>{name}</strong><small>{institutionRoles[role]}</small></div>
+                      <button type="button" className="primary" aria-label={`Open workspace ${name}`} onClick={() => onOpen(id)}>Open workspace</button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : <EmptyRows>This account has no active institution membership. Use an invitation code or register an institution below.</EmptyRows>}
           </LoadState>
         </section>
         <section className="admin-panel">

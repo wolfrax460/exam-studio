@@ -6,6 +6,8 @@ import { academicRoutes } from './academicRoutes.js';
 import { readAcademicStructure } from './academicRepository.js';
 import { authenticateUser } from './auth.js';
 import { httpError } from './errors.js';
+import { pageOptions, pageResult, parse } from './institutionHttp.js';
+import { institutionPeopleRoutes, workspaceDashboard } from './institutionPeopleRoutes.js';
 import { findUserByEmail, findUserById } from './repository.js';
 import { resolveWorkspace } from './workspaceAuth.js';
 import {
@@ -54,13 +56,6 @@ const membershipChange = z.strictObject({
 const invitationHash = (code) => createHash('sha256').update(code).digest('hex');
 const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
-function parse(schema, input) {
-  const result = schema.safeParse(input);
-  if (result.success) return result.data;
-  const field = result.error.issues[0]?.path[0];
-  throw httpError(400, field ? `Check the value of ${field}.` : 'Check the submitted fields.');
-}
-
 function privateRoute(req, res, next) {
   res.set('Cache-Control', 'private, no-store');
   if (!enabled()) return next(httpError(404, 'Not found.'));
@@ -93,14 +88,8 @@ const reviewRequest = (institution) => ({
   history: institution.history,
 });
 
-function pageOptions(query) {
-  const page = query.page === undefined ? 1 : Number(query.page);
-  if (!Number.isInteger(page) || page < 1 || page > 10000) throw httpError(400, 'Invalid page.');
-  return { offset: (page - 1) * 20, limit: 21 };
-}
-
 function sendPage(res, institutions, serialize) {
-  res.json({ items: institutions.slice(0, 20).map(serialize), hasMore: institutions.length > 20 });
+  res.json(pageResult(institutions, serialize));
 }
 
 async function bootstrapMembership(institution, reviewerId) {
@@ -160,6 +149,7 @@ institutionRoutes.get('/institutions/workspace', privateRoute, resolveWorkspace,
 const workspaceGuard = [privateRoute, resolveWorkspace, requireInstitution];
 const memberAdminGuard = [...workspaceGuard, requireInstitutionAdmin];
 institutionRoutes.use('/institutions/academics', academicRoutes(workspaceGuard, memberAdminGuard));
+institutionRoutes.use('/institutions/people', institutionPeopleRoutes(workspaceGuard, memberAdminGuard));
 
 institutionRoutes.get('/institutions/workspaces', privateRoute, handle(async (req, res) => {
   res.json({ items: await listAuthorizedInstitutions(req.user.id) });
@@ -178,9 +168,10 @@ institutionRoutes.get('/institutions/workspace/overview', ...workspaceGuard, han
   const { name, type, profile } = institution;
   const academicYear = academic.years.find(({ id }) => id === academic.activeYearId)?.name ?? null;
   const academicTerm = academic.terms.find(({ id }) => id === academic.activeTermId)?.name ?? null;
+  const dashboard = membership.role === 'member' ? null : await workspaceDashboard(institutionId, membership, academic);
   res.json({
     id: institutionId, name, type, location: profile?.location, country: profile?.country,
-    role: membership.role, counts, academicYear, academicTerm,
+    role: membership.role, counts, academicYear, academicTerm, dashboard,
   });
 }));
 

@@ -765,7 +765,8 @@ export default function App() {
   }
   if (user && institutionEnabled && selectedInstitution) {
     return <InstitutionWorkspace key={`${user.id}:${selectedInstitution}`} institutionId={selectedInstitution}
-      workspaces={institutionWorkspaces} onSwitch={switchWorkspace} onAccessHub={openInstitutionAccess} onSignOut={handleLogout} />;
+      workspaces={institutionWorkspaces} onSwitch={switchWorkspace} onAccessHub={openInstitutionAccess} onSignOut={handleLogout}
+      theme={theme} toggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} />;
   }
 
   return (

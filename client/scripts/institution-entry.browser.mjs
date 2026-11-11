@@ -54,6 +54,7 @@ async function createWorkspace(name) {
 async function newPage(t, viewport = { width: 1440, height: 1000 }) {
   const context = await browser.newContext({ viewport, colorScheme: 'dark' });
   t.after(() => context.close());
+  await context.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, (route) => route.abort());
   const page = await context.newPage();
   page.setDefaultTimeout(12_000);
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -158,6 +159,7 @@ it('keeps the personal login compatible and carries inline institution intent th
   await heading(page, 'Institution Access').waitFor();
   await button(page, 'Open workspace Greenfield Academy').waitFor();
   await button(page, 'Open workspace Riverbank School').waitFor();
+  await page.getByText('Active membership verified for 2 institutions.').waitFor();
   await capture(page, '02-desktop-access-hub');
   await button(page, 'Switch to light theme').click();
   await page.locator('html[data-theme="light"]').waitFor();
@@ -183,10 +185,10 @@ it('signs up on mobile, distinguishes empty and failed loads, and follows a real
   await heading(page, 'Institution Access').waitFor();
   await page.getByText('Checking your institution access…', { exact: true }).waitFor();
   releaseFailure();
-  await page.getByText(/Could not load institution access/).waitFor();
-  assert.equal(await page.getByText(/don’t have access to an institution workspace/).count(), 0);
+  await page.getByText(/Could not load active institution memberships/).waitFor();
+  assert.equal(await page.getByText(/no active institution membership/).count(), 0);
   await button(page, 'Try again').click();
-  await page.getByText(/don’t have access to an institution workspace/).waitFor();
+  await page.getByText(/no active institution membership/).waitFor();
   await capture(page, '04-mobile-empty-access');
   await button(page, 'Register an institution').click();
   const dialog = page.getByRole('dialog', { name: 'Institution registration' });
@@ -214,6 +216,7 @@ it('signs up on mobile, distinguishes empty and failed loads, and follows a real
   await button(page, 'Manage classes').click();
   await button(page, 'Add class').waitFor();
   await review(approved.id, approved.version, 'suspended');
+  await button(page, 'Toggle institution navigation').click();
   await button(page, 'Member directory').click();
   await heading(page, 'Workspace access is unavailable').waitFor();
   assert.equal(await heading(page, 'North Hill School').count(), 0);
@@ -249,6 +252,7 @@ it('checks invitation codes and restricts teacher and member navigation', { time
   await button(page, 'Open workspace Greenfield Academy').click();
   await heading(page, 'Greenfield Academy').waitFor();
   assert.equal(await button(page, 'Invite a member').count(), 0);
+  assert.equal(await button(page, 'Staff').count(), 0);
   await button(page, 'View academics').click();
   await page.getByRole('region', { name: 'Academic structure' }).waitFor();
   assert.equal(await button(page, 'Add academic year').count(), 0);
@@ -260,7 +264,8 @@ it('checks invitation codes and restricts teacher and member navigation', { time
   await button(memberPage, 'Open workspace Riverbank School').click();
   await heading(memberPage, 'Riverbank School').waitFor();
   await button(memberPage, 'View member directory').waitFor();
-  assert.equal(await button(memberPage, 'Academics').count(), 0);
+  assert.equal(await button(memberPage, 'Academic calendar').count(), 0);
+  assert.equal(await button(memberPage, 'Students').count(), 0);
   await expectDenied(member, '/api/institutions/academics', beta, 403);
 });
 
@@ -304,6 +309,120 @@ it('ignores a delayed response after switching tenants or signing out', { timeou
   const picker = page.getByRole('combobox', { name: 'Workspace' });
   await picker.getByRole('option', { name: 'Greenfield Academy' }).waitFor({ state: 'attached' });
   assert.equal(await picker.getByRole('option', { name: 'Riverbank School' }).count(), 0);
+});
+
+it('uses real enrollment, academic records and staff profiles in the institution workspace', { timeout: 85_000 }, async (t) => {
+  const instructor = await makeAccount('Review Instructor');
+  const teachingInvite = await invite(instructor, alpha, 'teacher');
+  assert.equal((await call(api.base, '/api/institutions/invitations/accept', {
+    method: 'POST', token: instructor.token, body: { code: teachingInvite },
+  })).status, 200);
+  const learner = await makeAccount('Riley Learner');
+  const support = await makeAccount('Taylor Support');
+  for (const account of [learner, support]) {
+    const code = await invite(account, alpha, 'member');
+    assert.equal((await call(api.base, '/api/institutions/invitations/accept', { method: 'POST', token: account.token, body: { code } })).status, 200);
+  }
+  const page = await newPage(t);
+  await signIn(page, owner);
+  await button(page, 'Open workspace Greenfield Academy').click();
+  await heading(page, 'Greenfield Academy').waitFor();
+  await page.getByRole('progressbar', { name: 'Institution setup progress' }).waitFor();
+  await capture(page, '10-institution-setup');
+  await button(page, 'Toggle institution navigation').click();
+  assert.equal(await button(page, 'Toggle institution navigation').getAttribute('aria-expanded'), 'false');
+  await button(page, 'Academic calendar').click();
+  await button(page, 'Add academic year').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name', { exact: true }).fill('2026–2027');
+  await dialog.getByLabel('Start date').fill('2026-09-01');
+  await dialog.getByLabel('End date').fill('2027-07-31');
+  await button(dialog, 'Save academic year').click();
+  await button(page, 'Activate').click();
+  await page.getByText('2026–2027 is active.').waitFor();
+  await button(page, 'Dashboard').click();
+  await button(page, 'Create class').click();
+  await dialog.getByLabel('Name', { exact: true }).fill('Year One');
+  await dialog.getByLabel('Academic year').selectOption({ label: '2026–2027' });
+  await dialog.getByLabel('Teacher').selectOption({ label: instructor.name });
+  await button(dialog, 'Save class').click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.getByLabel('Academic records').selectOption('sections');
+  await button(page, 'Add section').click();
+  await dialog.getByLabel('Name', { exact: true }).fill('Section A');
+  await dialog.getByLabel('Class').selectOption({ label: 'Year One · 2026–2027' });
+  await button(dialog, 'Save section').click();
+  await dialog.waitFor({ state: 'hidden' });
+  await button(page, 'Dashboard').click();
+  await button(page, 'Create subject').click();
+  await dialog.getByLabel('Name', { exact: true }).fill('Mathematics');
+  await dialog.getByLabel('Subject code').fill('MATH');
+  await button(dialog, 'Save subject').click();
+  await dialog.waitFor({ state: 'hidden' });
+  await button(page, 'Dashboard').click();
+  await button(page, 'Add student').click();
+  await dialog.getByLabel('Student name').fill('Riley Learner');
+  await dialog.getByLabel('Student identifier').fill('AC-001');
+  await dialog.getByRole('combobox', { name: 'Class', exact: true }).selectOption({ label: 'Year One · 2026–2027' });
+  await dialog.getByRole('combobox', { name: 'Section', exact: true }).selectOption({ label: 'Section A' });
+  await dialog.getByLabel('Find an active member').fill('Riley Learner');
+  await dialog.getByRole('combobox', { name: 'Account', exact: true }).selectOption({ label: `${learner.name} · ${learner.email}` });
+  await dialog.getByLabel('Guardian name').fill('Example Guardian');
+  await dialog.getByLabel('Guardian email').fill('guardian@example.com');
+  await button(dialog, 'Save student').click();
+  await page.getByRole('cell', { name: /^Riley Learner/ }).waitFor();
+  await capture(page, '11-student-directory');
+  await button(page, 'View Riley Learner').click();
+  await dialog.getByText(/Example Guardian/).waitFor();
+  await heading(dialog, 'Enrollment history').waitFor();
+  await capture(page, '12-student-details');
+  await button(dialog, 'Edit student').click();
+  await dialog.getByLabel('Student identifier').fill('AC-010');
+  await button(dialog, 'Save student').click();
+  await page.getByText('AC-010', { exact: true }).waitFor();
+  await button(page, 'Teachers').click();
+  await button(page, `Edit profile for ${instructor.name}`).click();
+  await dialog.getByLabel('Job title').fill('Mathematics teacher');
+  await button(dialog, 'Save profile').click();
+  await page.getByText('Mathematics teacher', { exact: true }).waitFor();
+  await capture(page, '13-teacher-directory');
+  await button(page, 'Member directory').click();
+  await button(page, 'Staff profile for Taylor Support').click();
+  await dialog.getByLabel('Classification').selectOption('support');
+  await dialog.getByLabel('Job title').fill('Library assistant');
+  await button(dialog, 'Save profile').click();
+  await dialog.waitFor({ state: 'hidden' });
+  await button(page, 'Staff').click();
+  await page.getByText('Library assistant', { exact: true }).waitFor();
+  await capture(page, '14-staff-directory');
+  await button(page, 'Toggle institution navigation').click();
+  await button(page, 'Dashboard').click();
+  await button(page, 'Year One').waitFor();
+  assert.equal(await page.getByRole('progressbar', { name: 'Institution setup progress' }).count(), 0);
+  await capture(page, '15-institution-dashboard');
+  await button(page, 'Switch to light theme').click();
+  await page.locator('html[data-theme="light"]').waitFor();
+  await capture(page, '16-light-institution-dashboard');
+
+  const mobile = await newPage(t, { width: 390, height: 844 });
+  await signIn(mobile, instructor);
+  await mobile.getByText('Active membership verified for 1 institution.').waitFor();
+  await button(mobile, 'Open workspace Greenfield Academy').click();
+  await heading(mobile, 'Greenfield Academy').waitFor();
+  await capture(mobile, '17-mobile-teacher-dashboard');
+  await button(mobile, 'Toggle institution navigation').click();
+  assert.equal(await button(mobile, 'Staff').count(), 0);
+  await capture(mobile, '18-mobile-institution-navigation');
+  await button(mobile, 'Students').click();
+  assert.equal(await button(mobile, 'Add student').count(), 0);
+  await button(mobile, 'View Riley Learner').click();
+  const teacherDialog = mobile.getByRole('dialog', { name: 'Student details' });
+  await heading(teacherDialog, 'Riley Learner').waitFor();
+  assert.equal(await teacherDialog.getByText(/guardian/i).count(), 0);
+  assert.equal(await button(teacherDialog, 'Edit student').count(), 0);
+  await capture(mobile, '19-mobile-teacher-student-details');
+  await button(teacherDialog, 'Close').click();
+  await teacherDialog.waitFor({ state: 'hidden' });
 });
 
 it('preserves the Coming Soon fallback and personal sign-in when disabled', { timeout: 35_000 }, async (t) => {
