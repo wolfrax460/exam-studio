@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, describe, before, after, beforeEach } from 'node:test';
 import { bootApi, call, makeUser } from './helpers.js';
-import { markObjective } from '../lib/examTake.js';
+import { aiMarkAnswer, markObjective } from '../lib/examTake.js';
 
 // A canonical sectioned paper: section kinds come from shared/format.js SECTION_KINDS. The old
 // fixture used select_all/matching/sequencing sections, which the format does not allow (it turns
@@ -167,12 +167,97 @@ describe('Marking Engine', () => {
       const saResult = res.body.score.perQuestion.find(p => p.questionId === sa.id);
       const structResult = res.body.score.perQuestion.find(p => p.questionId === structured.id);
       assert.equal(saResult.needsReview, true);
-      assert.equal(saResult.awarded, 0);
+      assert.equal(saResult.awarded, null);
       assert.ok(saResult.max > 0);
       assert.equal(structResult.needsReview, true);
-      assert.equal(structResult.awarded, 0);
+      assert.equal(structResult.awarded, null);
       assert.ok(structResult.max > 0);
     });
+
+    test('saves final written answers and preserves ungraded answers when a teacher changes one mark', async () => {
+      const written = { 'D-1': 'A different explanation', 'E-1': 'An alternative method' };
+      const submitted = await call(api.base, `/api/take/attempts/${attemptId}/submit`, {
+        method: 'POST', body: { attemptToken, answers: written },
+      });
+      assert.equal(submitted.status, 200);
+      const path = `/api/exams/${examId}/attempts/${attemptId}`;
+      let attempt;
+      for (let i = 0; i < 25; i += 1) {
+        attempt = (await call(api.base, path, { token: ownerToken })).body.attempt;
+        if (attempt.status === 'marking_failed') break;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      assert.equal(attempt.status, 'marking_failed');
+      assert.deepEqual(attempt.answers, written);
+      const stranger = await makeUser(api.base);
+      assert.equal((await call(api.base, path, { token: stranger.token })).status, 404);
+      const update = (awarded) => call(api.base, `${path}/score`, { method: 'PATCH', token: ownerToken,
+        body: { revision: attempt.__v, perQuestion: [{ questionId: 'D-1', awarded, comment: 'Valid idea; add an example.' }] } });
+      assert.equal((await update(3)).status, 400);
+      const adjusted = await update(1.5);
+      assert.equal(adjusted.status, 200);
+      const saved = adjusted.body.attempt;
+      assert.equal(saved.score.total, 1.5);
+      assert.equal(saved.score.perQuestion.find(({ questionId }) => questionId === 'D-1').method, 'teacher');
+      assert.ok(saved.score.perQuestion.find(({ questionId }) => questionId === 'D-1').reviewedBy);
+      assert.equal(saved.score.perQuestion.find(({ questionId }) => questionId === 'E-1').needsReview, true);
+      assert.equal((await update(2)).status, 409);
+      const retry = await call(api.base, `${path}/regrade`, { method: 'POST', token: ownerToken, body: {} });
+      assert.equal(retry.status, 202);
+      const reviewed = (await call(api.base, path, { token: ownerToken })).body.attempt;
+      assert.equal(reviewed.score.perQuestion.find(({ questionId }) => questionId === 'D-1').awarded, 1.5);
+      assert.equal(reviewed.score.perQuestion.find(({ questionId }) => questionId === 'E-1').needsReview, true);
+    });
+
+    test('assigns zero to blank written answers without queueing an AI request', async () => {
+      const res = await submit({ 'D-1': '  ', 'E-1': '' });
+      assert.equal(res.body.status, 'marked');
+      assert.equal(res.body.score.perQuestion.find(({ questionId }) => questionId === 'D-1').awarded, 0);
+    });
+  });
+});
+
+describe('Rubric-based written grading', () => {
+  const question = {
+    title: 'Photosynthesis and energy', totalMarks: 10,
+    modelAnswer: 'Photosynthesis converts light energy into chemical energy.',
+    parts: [{ letter: 'a', text: 'Explain the energy conversion and give a relevant detail.', marks: 10 }],
+    markingPoints: [{ point: 'Explains sunlight and stored energy in sugars', marks: 7 }, { point: 'Explains chlorophyll', marks: 3 }],
+  };
+  for (const [name, student, awarded] of [
+    ['accepts alternate wording', 'Plants use sunlight to make energy-rich sugars; chlorophyll absorbs the light.', 10],
+    ['accepts a different reasoning path', 'Sugars store energy. Plants build them using energy from light, which chlorophyll captures.', 10],
+    ['accepts partial credit', 'Plants use sunlight to make energy-rich sugars.', 7],
+    ['records a justified incorrect grade', 'Plant roots absorb finished sugar from the soil.', 0],
+  ]) {
+    test(name, async () => {
+      const grade = await aiMarkAnswer(question, student, async ({ system, user }) => {
+        assert.match(system, /valid paraphrases/);
+        assert.match(system, /partial credit/);
+        const input = JSON.parse(user);
+        assert.equal(input.reference, question.modelAnswer);
+        assert.equal(input.parts[0].marks, 10);
+        assert.equal(input.rubric[1].marks, 3);
+        assert.equal(input.studentResponse, student);
+        return { awarded, needsReview: false, feedback: 'Assessment based on the concepts explained.' };
+      });
+      assert.equal(grade.awarded, awarded);
+      assert.equal(grade.max, 10);
+    });
+  }
+  test('rejects uncertain, out-of-range, malformed and inconsistent grades', async () => {
+    for (const response of [
+      { awarded: null }, { awarded: '8' }, { awarded: 20 }, { awarded: -2 },
+      { awarded: 7, needsReview: true },
+      { awarded: 7, criteria: [{ criterion: 'Concept', awarded: 6, rationale: 'Mostly correct' }] },
+    ]) await assert.rejects(aiMarkAnswer(question, 'A response', async () => ({ feedback: 'Test', needsReview: false, ...response })));
+    await assert.rejects(aiMarkAnswer(question, 'A response', async () => { throw new Error('Provider unavailable'); }), /Provider unavailable/);
+  });
+  test('marks matching and sequencing without AI', () => {
+    const score = markObjective([{ id: 'm', type: 'matching', marks: 2, matchAnswers: ['B', 'A'] },
+      { id: 's', type: 'sequencing', marks: 3, sequenceAnswer: [3, 2, 1] }], { m: ['B', 'C'], s: ['3', '2', '1'] });
+    assert.equal(score.total, 4);
+    assert.ok(score.perQuestion.every(({ needsReview }) => !needsReview));
   });
 });
 

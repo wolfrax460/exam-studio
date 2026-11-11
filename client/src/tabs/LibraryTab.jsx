@@ -18,7 +18,7 @@ const FILTERS = [
 
 const kindInfo = (kind) => KINDS[kind] || { label: kind || 'Resource', mark: 'R' };
 
-export default function LibraryTab({ onOpen, initialQuery = '' }) {
+export default function LibraryTab({ onOpen, initialQuery = '', papersOnly = false }) {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState('');
   const [query, setQuery] = useState(initialQuery);
@@ -48,11 +48,11 @@ export default function LibraryTab({ onOpen, initialQuery = '' }) {
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (items || []).filter((item) => {
-      if (filter !== 'all' && item.kind !== filter) return false;
+      if (papersOnly ? item.kind !== 'exam' : filter !== 'all' && item.kind !== filter) return false;
       if (!needle) return true;
       return `${item.title || ''} ${kindInfo(item.kind).label} ${item.kind || ''}`.toLowerCase().includes(needle);
     });
-  }, [items, filter, query]);
+  }, [items, filter, query, papersOnly]);
 
   const open = async (id) => {
     setErr('');
@@ -71,13 +71,16 @@ export default function LibraryTab({ onOpen, initialQuery = '' }) {
   };
 
   if (!items) {
+    if (err) return <div className="banner error" role="alert">
+      <span>{err}</span><button type="button" onClick={load}>Try again</button>
+    </div>;
     return (
       <section className="library-page">
         <div className="section-head">
           <div>
             <p className="eyebrow">Saved work</p>
-            <h2>Your library</h2>
-            <p className="hint">Loading your saved notes, handouts, papers and flashcards.</p>
+            <h2>{papersOnly ? 'Saved papers' : 'Your library'}</h2>
+            <p className="hint">{papersOnly ? 'Loading papers from your Library.' : 'Loading your saved notes, handouts, papers and flashcards.'}</p>
           </div>
         </div>
         <div className="library-skeleton-grid" aria-busy="true" aria-label="Loading library">
@@ -92,8 +95,8 @@ export default function LibraryTab({ onOpen, initialQuery = '' }) {
       <div className="section-head">
         <div>
           <p className="eyebrow">Saved work</p>
-          <h2>Your library</h2>
-          <p className="hint">Open a resource to continue editing or export it, wherever it was created.</p>
+          <h2>{papersOnly ? 'Saved papers' : 'Your library'}</h2>
+          <p className="hint">{papersOnly ? 'Reopen a paper from your Library to review, export, or publish it online.' : 'Open a resource to continue editing or export it, wherever it was created.'}</p>
         </div>
         <button type="button" onClick={load}>Refresh</button>
       </div>
@@ -107,10 +110,10 @@ export default function LibraryTab({ onOpen, initialQuery = '' }) {
 
       <div className="library-toolbar">
         <label className="library-search">
-          <span className="sr-only">Search saved resources</span>
+          <span className="sr-only">{papersOnly ? 'Search saved papers' : 'Search saved resources'}</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by title or type" />
         </label>
-        <div className="library-filters" role="tablist" aria-label="Filter library resources">
+        {!papersOnly && <div className="library-filters" role="tablist" aria-label="Filter library resources">
           {FILTERS.map(([key, label]) => (
             <button
               type="button"
@@ -123,7 +126,7 @@ export default function LibraryTab({ onOpen, initialQuery = '' }) {
               {label} <span>{counts[key] || 0}</span>
             </button>
           ))}
-        </div>
+        </div>}
         <span className="library-count">{filtered.length} of {items.length}</span>
       </div>
 

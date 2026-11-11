@@ -42,8 +42,19 @@ jobs:
         env:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27017
         run: node --test --test-concurrency=3 --test-timeout=90000 test/*.test.js
+      - name: Test institution people management in JSON storage
+        working-directory: server
+        env:
+          TASK023_TEST_FILE_MODE: "1"
+        run: node --test --test-timeout=90000 test/institution-people.test.js test/institution-courses.test.js
       - name: Test client
         working-directory: client
         run: node --test test/*.test.js
       - run: npm run build
+      - name: Install Chromium for institution entry tests
+        working-directory: client
+        run: npm exec -- playwright install --with-deps chromium
+      - name: Test institution entry in Chromium
+        working-directory: client
+        run: npm run test:institution-entry
       - run: npm --prefix apps/landing run build

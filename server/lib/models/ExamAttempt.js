@@ -18,6 +18,9 @@ const schema = new mongoose.Schema({
   status: { type: String, enum: ['in_progress', 'submitted', 'marked', 'marking_failed'], default: 'in_progress', index: true },
   score: { type: Object, default: {} },
   feedback: { type: Array, default: [] },
+  markingProgress: { type: Object, default: null },
+  markingStartedAt: { type: Date, default: null },
+  markedByOwnerAt: { type: Date, default: null },
   focusLostCount: { type: Number, default: 0 },
 }, { timestamps: true });
 

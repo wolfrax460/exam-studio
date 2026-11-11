@@ -1,4 +1,4 @@
-import { authenticatedFetch, clearSession } from './auth.js';
+import { authenticatedFetch, clearSession, getToken } from './auth.js';
 
 // One place that turns a failed request into a useful Error.
 async function request(path, { json, ...opts } = {}) {
@@ -8,6 +8,7 @@ async function request(path, { json, ...opts } = {}) {
     throw Object.assign(new Error(`Double "/api" prefix in request path: ${path}. Use relative paths like "/tokens" not "/api/tokens".`), { status: 0 });
   }
 
+  const sessionToken = getToken();
   let res;
   try {
     res = await authenticatedFetch(`/api${path}`, {
@@ -18,7 +19,7 @@ async function request(path, { json, ...opts } = {}) {
     throw Object.assign(new Error('Cannot reach the server. Is it running?'), { status: 0 });
   }
 
-  if (res.status === 401) {
+  if (res.status === 401 && !opts.signal?.aborted && getToken() === sessionToken) {
     // The session is gone (expired or signed out elsewhere). Drop it and tell the app, so the
     // screen goes back to sign-in instead of showing a shell where nothing works.
     clearSession();
@@ -34,8 +35,8 @@ async function request(path, { json, ...opts } = {}) {
 }
 
 export const get = async (path, options) => (await request(path, options)).json();
-export const post = async (path, json) => (await request(path, { method: 'POST', json })).json();
-export const put = async (path, json) => (await request(path, { method: 'PUT', json })).json();
+export const post = async (path, json, options) => (await request(path, { ...options, method: 'POST', json })).json();
+export const put = async (path, json, options) => (await request(path, { ...options, method: 'PUT', json })).json();
 export const patch = async (path, json) => (await request(path, { method: 'PATCH', json })).json();
 export const del = async (path, json) => { await request(path, { method: 'DELETE', ...(json ? { json } : {}) }); };
 

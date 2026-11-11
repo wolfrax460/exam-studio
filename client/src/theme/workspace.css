@@ -1098,31 +1098,6 @@
   gap: 16px;
 }
 
-.esx-rail {
-  position: static;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 5px;
-  border-color: var(--paper-border);
-  background: var(--paper-bg);
-}
-
-.esx-rail button {
-  width: auto;
-  flex: 0 0 auto;
-  min-height: 34px;
-  padding: 7px 11px;
-  font-size: 12.5px;
-}
-
-.esx-rail .esx-subnav-meta {
-  margin: 0 6px 0 auto;
-  padding: 0;
-  text-align: right;
-}
-
 .esx-columns {
   grid-template-columns: minmax(0, 1fr) 330px;
 }
@@ -1396,15 +1371,6 @@
   .esx {
     padding: 14px;
     border-radius: 14px;
-  }
-
-  .esx-rail {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-  }
-
-  .esx-rail .esx-subnav-meta {
-    display: none;
   }
 
   .esx-columns {

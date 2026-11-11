@@ -41,7 +41,7 @@ import { launchInfo, snippets } from './lib/agents.js';
 import { createMcpServer, PUBLIC_INPUT_MAX_CHARS } from './lib/mcpServer.js';
 import ExamPublication from './lib/models/ExamPublication.js';
 import ExamAttempt from './lib/models/ExamAttempt.js';
-import { studentQuestion, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective, aiMarkAnswer } from './lib/examTake.js';
+import { studentQuestion, questionList, totalMarks as examTotalMarks, signAttemptToken, verifyAttemptToken, markObjective, aiMarkAnswer, hasWrittenAnswer, isWrittenQuestion } from './lib/examTake.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { checkForUpdate, cachedUpdateStatus, currentVersion, updateSource, CHECK_INTERVAL_MS } from './lib/version.js';
 import { QUESTION_TYPES, validateExam, totalMarks, isSectionsExam, numberedItems, itemMarks, answerText } from '../shared/format.js';
@@ -1548,67 +1548,101 @@ app.delete('/api/library/:id', wrap(async (req, res) => {
   res.status(204).end();
 }));
 
+const MARKING_LEASE_MS = 15 * 60_000;
+const progressFor = (perQuestion) => ({ done: perQuestion.filter((row) => !row.needsReview).length, total: perQuestion.length });
+const totalFor = (perQuestion) => perQuestion.reduce((sum, row) => sum + (Number(row.awarded) || 0), 0);
+const attemptRevision = (attempt) => attempt.__v ?? { $exists: false };
+const pendingFeedback = (questionId) => ({ questionId, needsReview: true, message: 'Written answer needs teacher review.' });
+const queueMarking = (id) => setImmediate(() => markAttemptAI(id).catch(() => {}));
+
 async function markAttemptAI(attemptId) {
-  const attempt = await ExamAttempt.findById(attemptId);
-  if (!attempt || attempt.status !== 'submitted') return;
-  const item = await getItem(attempt.examId, attempt.ownerId);
-  if (!item) { attempt.status = 'marking_failed'; await attempt.save(); return; }
-  const questions = questionList(item.data);
-  const needs = (attempt.score?.perQuestion || []).filter((p) => p.needsReview);
-  if (!needs.length) { attempt.status = 'marked'; await attempt.save(); return; }
+  const started = new Date();
+  const attempt = await ExamAttempt.findOneAndUpdate({ _id: attemptId, status: 'submitted', markingStartedAt: null },
+    { $set: { markingStartedAt: started } }, { new: true }).lean();
+  if (!attempt) return;
+  const needs = (attempt.score?.perQuestion || []).filter((row) => row.needsReview);
+  const results = new Map((attempt.score?.perQuestion || []).map((row) => [String(row.questionId), row]));
+  const feedback = new Map((attempt.feedback || []).map((entry) => [String(entry.questionId), entry]));
+  let usedProvider = false;
   try {
-    await admin.enforceLimits(attempt.ownerId, 'exam', '');
-  } catch {
-    attempt.status = 'marking_failed';
-    attempt.feedback = [...(attempt.feedback || []), { needsReview: true, message: 'AI marking limit reached. Objective questions are marked; the owner can review and mark written answers.' }];
-    await attempt.save();
-    return;
-  }
-  const answers = attempt.answers || {};
-  const byId = new Map(questions.map((q) => [String(q.id), q]));
-  const results = new Map(attempt.score.perQuestion.map((p) => [String(p.questionId), p]));
-  let next = 0;
-  const work = async () => {
-    while (true) {
-      const index = next++;
-      if (index >= needs.length) return;
-      const entry = needs[index];
-      const q = byId.get(String(entry.questionId));
-      if (!q) continue;
-      try {
-        const marked = await aiMarkAnswer(q, answers[entry.questionId]);
-        const current = results.get(String(entry.questionId));
-        results.set(String(entry.questionId), { ...current, ...marked, needsReview: false });
-        attempt.feedback = [...(attempt.feedback || []).filter((f) => f.questionId !== entry.questionId), { questionId: entry.questionId, ...marked }];
-        attempt.score = { ...attempt.score, perQuestion: [...results.values()], total: [...results.values()].reduce((s, p) => s + p.awarded, 0) };
-        attempt.markingProgress = { done: Array.from(results.values()).filter((p) => !p.needsReview).length, total: attempt.score.perQuestion.length };
-        await attempt.save();
-      } catch {
-        attempt.feedback = [...(attempt.feedback || []), { questionId: entry.questionId, needsReview: true, message: 'This answer needs the owner to review and mark it.' }];
+    const item = await getItem(attempt.examId, attempt.ownerId);
+    if (!item || DEMO) throw new Error('AI marking is unavailable.');
+    await admin.enforceLimits(String(attempt.ownerId), 'exam', '');
+    const settings = await getUserAISettings(String(attempt.ownerId));
+    const questions = new Map(questionList(item.data).map((question) => [String(question.id), question]));
+    await runWithUserAI(settings, async () => {
+      const provider = activeProviderId();
+      const model = resolveProvider(provider)?.model;
+      let next = 0;
+      async function markNext() {
+        while (next < needs.length) {
+          const row = needs[next++];
+          const key = String(row.questionId);
+          const question = questions.get(key);
+          if (!question || !isWrittenQuestion(question)) continue;
+          try {
+            usedProvider = true;
+            const marked = await aiMarkAnswer({ ...question, marks: row.max }, attempt.answers?.[key]);
+            results.set(key, { ...row, ...marked, method: 'ai', needsReview: false, provider, model });
+            feedback.set(key, { questionId: row.questionId, ...marked });
+          } catch {
+            feedback.set(key, pendingFeedback(row.questionId));
+          }
+        }
       }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(3, needs.length) }, work));
-  attempt.score = { ...attempt.score, perQuestion: [...results.values()], total: [...results.values()].reduce((s, p) => s + p.awarded, 0) };
-  const still = attempt.score.perQuestion.some((p) => p.needsReview);
-  attempt.status = still ? 'marking_failed' : 'marked';
-  await attempt.save();
-  try { await admin.recordUsage({ userId: attempt.ownerId, taskType: 'exam', estimatedTokens: 200, success: true }); } catch {}
+      await Promise.all(Array.from({ length: Math.min(2, needs.length) }, markNext));
+    });
+  } catch {
+    for (const row of needs) feedback.set(String(row.questionId), pendingFeedback(row.questionId));
+  }
+  const perQuestion = [...results.values()];
+  const status = perQuestion.some((row) => row.needsReview) ? 'marking_failed' : 'marked';
+  await ExamAttempt.updateOne({ _id: attemptId, status: 'submitted', markingStartedAt: started }, { $set: {
+    status, score: { ...attempt.score, perQuestion, total: totalFor(perQuestion) },
+    feedback: [...feedback.values()], markingProgress: progressFor(perQuestion), markingStartedAt: null,
+  }, $inc: { __v: 1 } });
+  if (usedProvider) {
+    try { await admin.recordUsage({ userId: attempt.ownerId, taskType: 'exam', estimatedTokens: 200, success: status === 'marked' }); } catch {}
+  }
 }
 
-async function finalizeAttempt(attempt) {
+function validatedAnswers(answers) {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw httpError(400, 'Answers must be an object.');
+  const entries = Object.entries(answers);
+  if (entries.length > 500) throw httpError(413, 'Too many answers.');
+  const primitive = (value) => ['string', 'number', 'boolean'].includes(typeof value);
+  for (const [key, value] of entries) {
+    if (!key || key.length > 120 || /[.$\0]/.test(key) || ['__proto__', 'constructor', 'prototype'].includes(key) ||
+        !(primitive(value) || (Array.isArray(value) && value.length <= 100 && value.every(primitive)))) {
+      throw httpError(400, 'An answer is invalid.');
+    }
+    if (String(value).length > 20_000) throw httpError(413, 'One of your answers is too long.');
+  }
+  return entries;
+}
+
+async function finalizeAttempt(attempt, finalAnswers = [], focusLostCount) {
   if (!attempt || attempt.status !== 'in_progress') return attempt;
   const item = await getItem(attempt.examId, attempt.ownerId);
   const questions = item ? questionList(item.data) : [];
-  const score = markObjective(questions, attempt.answers || {});
-  attempt.status = 'submitted';
-  attempt.submittedAt = new Date();
-  attempt.score = score;
-  attempt.feedback = score.perQuestion.filter((p) => p.needsReview).map((p) => ({ questionId: p.questionId, needsReview: true }));
-  attempt.markingProgress = { done: score.perQuestion.filter((p) => !p.needsReview).length, total: score.perQuestion.length };
-  await attempt.save();
-  setImmediate(() => markAttemptAI(attempt._id).catch(() => {}));
-  return attempt;
+  for (let retry = 0; retry < 5; retry += 1) {
+    const answers = { ...attempt.answers, ...Object.fromEntries(finalAnswers) };
+    const score = markObjective(questions, answers);
+    const feedback = score.perQuestion.filter((row) => row.needsReview).map(({ questionId }) => pendingFeedback(questionId));
+    const status = feedback.length ? 'submitted' : 'marked';
+    const saved = await ExamAttempt.findOneAndUpdate({ _id: attempt._id, status: 'in_progress', __v: attemptRevision(attempt) }, {
+      $set: { answers, score, feedback, status, submittedAt: new Date(), markingProgress: progressFor(score.perQuestion),
+        ...(Number.isInteger(focusLostCount) && { focusLostCount: Math.max(attempt.focusLostCount || 0, Math.min(10000, focusLostCount)) }) },
+      $inc: { __v: 1 },
+    }, { new: true }).lean();
+    if (saved) {
+      if (status === 'submitted') queueMarking(saved._id);
+      return saved;
+    }
+    attempt = await ExamAttempt.findById(attempt._id).lean();
+    if (!attempt || attempt.status !== 'in_progress') return attempt;
+  }
+  throw httpError(409, 'Your answers changed while submitting. Please try again.');
 }
 
 // Deadline auto-submit: a closed tab must not leave an exam open forever.
@@ -1757,33 +1791,47 @@ app.put('/api/take/attempts/:id/answers', takeLimit, wrap(async (req, res) => {
   await requireActivePublication(attempt);
   if (attempt.status !== 'in_progress') throw httpError(409, 'This attempt is already submitted.');
   if (Date.now() > attempt.deadlineAt.getTime() + ATTEMPT_GRACE_MS) throw httpError(410, 'The deadline has passed.');
-  const answers = req.body?.answers;
-  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw httpError(400, 'Answers must be an object.');
-  const merged = { ...(attempt.answers || {}) };
-  for (const [key, value] of Object.entries(answers)) {
-    if (String(value).length > 20_000) throw httpError(413, 'One of your answers is too long.');
-    merged[key] = value;
-  }
-  attempt.answers = merged;
-  attempt.autosavedAt = new Date();
-  await attempt.save();
-  res.json({ ok: true, autosavedAt: attempt.autosavedAt, deadlineAt: attempt.deadlineAt });
+  const fields = Object.fromEntries(validatedAnswers(req.body?.answers).map(([key, value]) => [`answers.${key}`, value]));
+  const autosavedAt = new Date();
+  const result = await ExamAttempt.updateOne({ _id: attempt._id, status: 'in_progress' }, {
+    $set: { ...fields, autosavedAt },
+    $inc: { __v: 1 },
+    ...(Number.isInteger(req.body?.focusLostCount) && { $max: { focusLostCount: Math.max(0, Math.min(10000, req.body.focusLostCount)) } }),
+  });
+  if (!result.matchedCount) throw httpError(409, 'This attempt is already submitted.');
+  res.json({ ok: true, autosavedAt, deadlineAt: attempt.deadlineAt });
 }));
+
+function resultsVisible(pub) {
+  return pub.showResultsMode === 'immediately' || (pub.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
+}
+
+function studentScore(score) {
+  if (!score) return null;
+  const rows = score.perQuestion || [];
+  return { total: rows.some((row) => row.needsReview) ? totalFor(rows.filter((row) => !row.needsReview)) : score.total,
+    max: score.max, perQuestion: rows.map(({ questionId, awarded, max, needsReview }) => ({
+    questionId, awarded: needsReview ? null : awarded, max, needsReview,
+  })) };
+}
 
 app.post('/api/take/attempts/:id/submit', takeLimit, wrap(async (req, res) => {
   const data = verifyAttemptToken(req.body?.attemptToken);
   if (!data || data.attemptId !== req.params.id) throw httpError(401, 'Your exam session is invalid. Reopen the exam link.');
   const attempt = await ExamAttempt.findById(req.params.id);
   if (!attempt) throw httpError(404, 'Attempt not found.');
-  await requireActivePublication(attempt);
+  const pub = await requireActivePublication(attempt);
   // The deadline is decided from the server clock and the attempt record only; the request body
   // carries nothing that can move it. An attempt already finalized keeps the existing idempotent
   // reply below, so this check applies only while it is still open.
   if (attempt.status === 'in_progress' && Date.now() > attempt.deadlineAt.getTime() + ATTEMPT_GRACE_MS) {
     throw httpError(410, 'The deadline has passed. Answers saved before the deadline are submitted automatically.');
   }
-  const finalized = await finalizeAttempt(attempt);
-  res.json({ ok: true, status: finalized.status, score: finalized.score });
+  const answers = attempt.status === 'in_progress' && req.body?.answers !== undefined ? validatedAnswers(req.body.answers) : [];
+  const finalized = await finalizeAttempt(attempt, answers, req.body?.focusLostCount);
+  if (!finalized) throw httpError(404, 'Attempt not found.');
+  res.json({ ok: true, status: finalized.status, submittedAt: finalized.submittedAt,
+    score: resultsVisible(pub) ? studentScore(finalized.score) : null });
 }));
 
 app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
@@ -1792,7 +1840,7 @@ app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
   const attempt = await ExamAttempt.findById(req.params.id).lean();
   if (!attempt) throw httpError(404, 'Attempt not found.');
   const pub = await requireActivePublication(attempt);
-  const visible = pub.showResultsMode === 'immediately' || (pub.showResultsMode === 'after_close' && pub.closesAt && new Date() > pub.closesAt);
+  const visible = Boolean(resultsVisible(pub));
   // A student receives the mark and the comment, never the marking scheme itself: pointsHit and
   // pointsMissed name the marking points and stay with the owner.
   const studentFeedback = visible
@@ -1800,14 +1848,8 @@ app.get('/api/take/attempts/:id/result', takeLimit, wrap(async (req, res) => {
     : [];
   // overrideComment is the teacher's own note on a manually adjusted mark. It stays on the teacher
   // routes and never travels in a student response.
-  const studentScore = visible && attempt.score
-    ? {
-        total: attempt.score.total,
-        max: attempt.score.max,
-        perQuestion: (attempt.score.perQuestion || []).map(({ questionId, awarded, max, needsReview }) => ({ questionId, awarded, max, needsReview })),
-      }
-    : null;
-  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: studentScore, feedback: studentFeedback, markingProgress: attempt.markingProgress || null, resultsVisible: visible });
+  res.json({ status: attempt.status, submittedAt: attempt.submittedAt, score: visible ? studentScore(attempt.score) : null,
+    feedback: studentFeedback, markingProgress: attempt.markingProgress || null, resultsVisible: visible });
 }));
 
 app.get('/api/exams/:id/attempts', wrap(async (req, res) => {
@@ -1820,43 +1862,97 @@ app.get('/api/exams/:id/attempts/stats', wrap(async (req, res) => {
   await ownedExam(req.params.id, req.user.id);
   const attempts = await ExamAttempt.find({ examId: req.params.id, ownerId: req.user.id }).lean();
   const submitted = attempts.filter((a) => a.submittedAt);
-  const scores = submitted.map((a) => Number(a.score?.total) || 0);
+  const marked = submitted.filter((attempt) => attempt.status === 'marked' && !attempt.score?.perQuestion?.some((row) => row.needsReview));
+  const scores = marked.map((a) => Number(a.score?.total) || 0);
   const questions = {};
-  for (const a of submitted) for (const p of a.score?.perQuestion || []) {
+  for (const a of marked) for (const p of a.score?.perQuestion || []) {
     const row = questions[p.questionId] || { questionId: p.questionId, attempts: 0, awarded: 0, max: p.max || 0 };
     row.attempts++; row.awarded += Number(p.awarded) || 0; row.max = Math.max(row.max, Number(p.max) || 0); questions[p.questionId] = row;
   }
-  res.json({ attempts: attempts.length, submitted: submitted.length, average: scores.length ? scores.reduce((s, n) => s + n, 0) / scores.length : 0, highest: scores.length ? Math.max(...scores) : 0, lowest: scores.length ? Math.min(...scores) : 0, questions: Object.values(questions) });
+  res.json({ attempts: attempts.length, submitted: submitted.length, marked: marked.length,
+    average: scores.length ? scores.reduce((s, n) => s + n, 0) / scores.length : 0,
+    highest: scores.length ? Math.max(...scores) : 0, lowest: scores.length ? Math.min(...scores) : 0, questions: Object.values(questions) });
 }));
 
 app.get('/api/exams/:id/attempts/:attemptId', wrap(async (req, res) => {
-  await ownedExam(req.params.id, req.user.id);
+  const item = await ownedExam(req.params.id, req.user.id);
   const attempt = await ExamAttempt.findOne({ _id: req.params.attemptId, examId: req.params.id, ownerId: req.user.id }).lean();
   if (!attempt) throw httpError(404, 'Attempt not found.');
-  res.json({ attempt });
+  res.json({ attempt, questions: questionList(item.data) });
 }));
 
 app.patch('/api/exams/:id/attempts/:attemptId/score', wrap(async (req, res) => {
   await ownedExam(req.params.id, req.user.id);
   const attempt = await ExamAttempt.findOne({ _id: req.params.attemptId, examId: req.params.id, ownerId: req.user.id });
   if (!attempt) throw httpError(404, 'Attempt not found.');
-  const item = await getItem(req.params.id, req.user.id);
-  const questions = questionList(item.data);
+  if (!attempt.submittedAt) throw httpError(409, 'This attempt has not been submitted.');
+  if (attempt.status === 'submitted' && attempt.markingStartedAt > new Date(Date.now() - MARKING_LEASE_MS)) {
+    throw httpError(409, 'AI marking is still running. Refresh the review and try again.');
+  }
+  if (req.body?.revision !== undefined && req.body.revision !== (attempt.__v ?? 0)) throw httpError(409, 'The marks changed. Reopen the attempt.');
   const incoming = Array.isArray(req.body?.perQuestion) ? req.body.perQuestion : [];
-  const map = new Map(incoming.map((p) => [String(p.questionId), p]));
-  attempt.score.perQuestion = (attempt.score?.perQuestion || []).map((p) => {
-    const override = map.get(String(p.questionId));
-    if (!override) return p;
-    const awarded = Math.min(Number(p.max) || 0, Math.max(0, Math.round(Number(override.awarded) * 2) / 2));
-    return { ...p, awarded, needsReview: false, overrideComment: s(override.comment, 500) || p.overrideComment || '' };
+  const existing = new Map((attempt.score?.perQuestion || []).map((row) => [String(row.questionId), row]));
+  if (!incoming.length || incoming.length > existing.size) throw httpError(400, 'Choose which marks to update.');
+  const changes = new Map();
+  for (const override of incoming) {
+    const id = String(override?.questionId);
+    const row = existing.get(id);
+    if (!row || changes.has(id) || !Number.isFinite(override.awarded) || override.awarded < 0 || override.awarded > row.max) {
+      throw httpError(400, 'A mark is invalid or outside the question range.');
+    }
+    changes.set(id, override);
+  }
+  const reviewedAt = new Date();
+  const feedback = new Map((attempt.feedback || []).map((entry) => [String(entry.questionId), entry]));
+  const perQuestion = [...existing.values()].map((row) => {
+    const key = String(row.questionId);
+    const override = changes.get(key);
+    if (!override) return row;
+    const awarded = Math.min(row.max, Math.round(override.awarded * 2) / 2);
+    const comment = s(override.comment, 500) || '';
+    const originalAI = row.originalAI || (row.method === 'ai' ? {
+      awarded: row.awarded, feedback: row.feedback, pointsHit: row.pointsHit, pointsMissed: row.pointsMissed,
+      provider: row.provider, model: row.model, criteria: row.criteria,
+    } : undefined);
+    feedback.set(key, { questionId: row.questionId, awarded, max: row.max, feedback: comment });
+    return { ...row, awarded, needsReview: false, method: 'teacher', originalAI,
+      overrideComment: comment, reviewedBy: req.user.id, reviewedAt };
   });
-  attempt.score.total = attempt.score.perQuestion.reduce((sum, p) => sum + (Number(p.awarded) || 0), 0);
-  attempt.score.max = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
-  attempt.status = attempt.score.perQuestion.some((p) => p.needsReview) ? 'marking_failed' : 'marked';
-  attempt.markedByOwnerAt = new Date();
-  await attempt.save();
+  const updated = await ExamAttempt.findOneAndUpdate({ _id: attempt._id, __v: attemptRevision(attempt) }, { $set: {
+    score: { ...attempt.score, perQuestion, total: totalFor(perQuestion) },
+    status: perQuestion.some((row) => row.needsReview) ? 'marking_failed' : 'marked',
+    feedback: [...feedback.values()], markingProgress: progressFor(perQuestion), markingStartedAt: null, markedByOwnerAt: reviewedAt,
+  }, $inc: { __v: 1 } }, { new: true }).lean();
+  if (!updated) throw httpError(409, 'The marks changed. Reopen the attempt.');
   await admin.recordAudit({ actorId: req.user.id, actorEmail: req.user.email, action: 'attempt.score.override', targetType: 'examAttempt', targetId: String(attempt._id) });
-  res.json({ attempt });
+  res.json({ attempt: updated });
+}));
+
+app.post('/api/exams/:id/attempts/:attemptId/regrade', wrap(async (req, res) => {
+  const item = await ownedExam(req.params.id, req.user.id);
+  const attempt = await ExamAttempt.findOne({ _id: req.params.attemptId, examId: req.params.id, ownerId: req.user.id }).lean();
+  if (!attempt) throw httpError(404, 'Attempt not found.');
+  if (!attempt.submittedAt) throw httpError(409, 'This attempt has not been submitted.');
+  if (attempt.status === 'submitted' && (attempt.markingStartedAt || attempt.updatedAt) > new Date(Date.now() - MARKING_LEASE_MS)) {
+    throw httpError(409, 'Marking is already in progress.');
+  }
+  const written = new Set(questionList(item.data).filter(isWrittenQuestion).map((question) => String(question.id)));
+  const perQuestion = (attempt.score?.perQuestion || []).map((row) => {
+    const key = String(row.questionId);
+    return written.has(key) && hasWrittenAnswer(attempt.answers?.[key]) && row.method !== 'teacher' && !Object.hasOwn(row, 'overrideComment')
+      ? { ...row, needsReview: true } : row;
+  });
+  if (!perQuestion.some((row) => row.needsReview)) throw httpError(409, 'No written answers are available to regrade.');
+  const pending = new Set(perQuestion.filter((row) => row.needsReview).map((row) => String(row.questionId)));
+  const feedback = (attempt.feedback || []).filter((entry) => !pending.has(String(entry.questionId)));
+  const updated = await ExamAttempt.updateOne({ _id: attempt._id, __v: attemptRevision(attempt) }, { $set: {
+    status: 'submitted', markingStartedAt: null, score: { ...attempt.score, perQuestion },
+    feedback: [...feedback, ...Array.from(pending, pendingFeedback)],
+    markingProgress: progressFor(perQuestion),
+  }, $inc: { __v: 1 } });
+  if (!updated.matchedCount) throw httpError(409, 'The marks changed. Reopen the attempt.');
+  queueMarking(attempt._id);
+  res.status(202).json({ status: 'submitted' });
 }));
 
 // Retention: remove old attempts on the same background cadence as auto-submit.

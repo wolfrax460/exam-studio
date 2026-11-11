@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import { DEFAULT_CONFIG, generatePaper, poolFor, scorePaper } from './engine.js';
 import {
   importExam,
@@ -15,6 +15,7 @@ import Modules from './Modules.jsx';
 import Runner from './Runner.jsx';
 import Results from './Results.jsx';
 import PrintSheet from './PrintSheet.jsx';
+import LibraryTab from '../tabs/LibraryTab.jsx';
 import './paper.css';
 import './rail.css';
 
@@ -29,18 +30,19 @@ const EMPTY_MODULE = {
 };
 
 const SUBTABS = [
-  ['generate', 'Generate'],
-  ['bank', 'Question bank'],
-  ['papers', 'Papers'],
+  ['generate', 'Create'],
+  ['bank', 'Question Bank'],
+  ['papers', 'My Papers'],
   ['modules', 'Modules'],
   ['flashcards', 'Flashcards'],
 ];
 
-export default function PaperStudio({ exam, project, view, onView, generatePanel, flashcardsPanel }) {
+export default function PaperStudio({ exam, project, view, onView, visible, onOpenPaper, generatePanel, flashcardsPanel }) {
   const [modules, setModules] = useState(loadModules);
   const [activeId, setActiveId] = useState(loadActiveId);
   const [internalSub, setInternalSub] = useState('generate');
   const sub = view || internalSub;
+  const tabsId = useId();
   const setSub = (next) => {
     setInternalSub(next);
     if (onView) onView(next);
@@ -55,6 +57,20 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
   const [startedAt, setStartedAt] = useState(0);
   const [printKey, setPrintKey] = useState(false);
   const [history, setHistory] = useState([]);
+  const [showBuilder, setShowBuilder] = useState(false);
+
+  function handleTabKey(event, index) {
+    let next;
+    if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = SUBTABS.length - 1;
+    else if (event.key === 'ArrowRight') next = (index + 1) % SUBTABS.length;
+    else if (event.key === 'ArrowLeft') next = (index + SUBTABS.length - 1) % SUBTABS.length;
+    else return;
+    event.preventDefault();
+    const key = SUBTABS[next][0];
+    setSub(key);
+    document.getElementById(`${tabsId}-${key}`)?.focus();
+  }
 
   const generated = useMemo(() => importExam(exam), [exam]);
   const allModules = useMemo(
@@ -118,7 +134,7 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
       : Math.round((Date.now() - startedAt) / 1000);
     setResult(scorePaper(currentPaper, answers, used));
     setStage('results');
-    window.scrollTo({ top: 0 });
+    if (visible) window.scrollTo({ top: 0 });
   };
 
   useEffect(() => {
@@ -204,9 +220,6 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
 
   const selectModule = (id) => {
     setActiveId(id);
-    setSub('papers');
-    setStage('build');
-    window.scrollTo({ top: 0 });
   };
 
   const createModule = (module) => {
@@ -241,8 +254,6 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
     );
   };
 
-  const moduleMeta = { code: paper ? paper.code : activeModule.code, title: paper ? paper.title : activeModule.title };
-
   return (
     <div className="esx">
       <div className="esx-screen">
@@ -263,7 +274,7 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
           <Results
             paper={paper}
             result={result}
-            onRetake={startPaper}
+            onRetake={() => openPaper(paper)}
             onNew={() => {
               setStage('build');
               setSub('papers');
@@ -275,43 +286,52 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
 
         {stage === 'build' && (
           <>
-            {!generated && modules.length === 0 && (
-              <div className="esx-notice">
-                <strong>Start with a bank.</strong> Generate questions in Generate to import their
-                auto-markable items, or open Modules and create one by hand.
-              </div>
-            )}
-
             <div className="esx-body">
-              <nav className="esx-rail" aria-label="Paper studio views">
-                {SUBTABS.map(([key, label]) => (
+              <div className="esx-workflow-tabs" role="tablist" aria-label="Paper Studio views">
+                {SUBTABS.map(([key, label], index) => (
                   <button
                     type="button"
                     key={key}
-                    aria-current={sub === key ? 'page' : undefined}
-                    className={sub === key ? 'is-on' : ''}
+                    role="tab"
+                    id={`${tabsId}-${key}`}
+                    aria-controls={`${tabsId}-panel`}
+                    aria-selected={sub === key}
+                    tabIndex={sub === key ? 0 : -1}
+                    onKeyDown={(event) => handleTabKey(event, index)}
                     onClick={() => setSub(key)}
                   >
                     {label}
                   </button>
                 ))}
-                <p className="esx-subnav-meta">
-                  {moduleMeta.code} · {bank.length} questions
-                </p>
-              </nav>
+              </div>
 
-              <div className="esx-view">
+              <div className="esx-view" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${sub}`}>
                 {sub === 'generate' && generatePanel}
 
                 {sub === 'flashcards' && flashcardsPanel}
 
                 {sub === 'bank' && (
-                  <Bank module={activeModule} outcomes={activeModule.outcomes} onManage={() => setSub('modules')} />
+                  <>
+                    <div className="esx-bank-actions">
+                      <label>Question collection<select value={activeModule.id} onChange={(event) => selectModule(event.target.value)}>
+                        {allModules.length ? allModules.map(({ id, code, title }) => <option key={id} value={id}>{code} · {title}</option>)
+                          : <option value={activeModule.id}>No collection yet</option>}
+                      </select></label>
+                      <button type="button" onClick={() => { setShowBuilder(true); setSub('papers'); }} disabled={!bank.length}>Build from this bank</button>
+                    </div>
+                    <Bank module={activeModule} outcomes={activeModule.outcomes} onManage={() => setSub('modules')} />
+                  </>
                 )}
 
                 {sub === 'papers' && (
                   <>
-                    <Build
+                    {visible && <LibraryTab papersOnly onOpen={onOpenPaper} />}
+                    <div className="esx-bank-actions">
+                      <button type="button" aria-expanded={showBuilder} onClick={() => setShowBuilder(!showBuilder)}>
+                        {showBuilder ? 'Hide practice paper builder' : 'Build a practice paper'}
+                      </button>
+                    </div>
+                    {showBuilder && <Build
                       module={activeModule}
                       outcomes={activeModule.outcomes}
                       config={config}
@@ -319,8 +339,8 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
                       counts={counts}
                       available={available}
                       onStart={startPaper}
-                    />
-                    <section className="esx-panel">
+                    />}
+                    {(showBuilder || history.length > 0) && <section className="esx-panel">
                       <div className="esx-panel-head">
                         <div>
                           <h2>Papers from this session</h2>
@@ -336,7 +356,7 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
                               <span className="esx-mono esx-muted">{entry.code}</span>
                               <strong>{entry.title}</strong>
                               <span className="esx-muted esx-small">
-                                {entry.questions.length} questions · {entry.totalMarks} marks
+                                {entry.sections.reduce((count, section) => count + section.questions.length, 0)} questions · {entry.totalMarks} marks
                               </span>
                               <button type="button" className="esx-btn esx-btn-ghost esx-btn-sm" onClick={() => openPaper(entry)}>Open</button>
                               <button type="button" className="esx-btn esx-btn-ghost esx-btn-sm" onClick={() => printPaper(entry)}>Print</button>
@@ -344,7 +364,7 @@ export default function PaperStudio({ exam, project, view, onView, generatePanel
                           ))}
                         </ul>
                       )}
-                    </section>
+                    </section>}
                   </>
                 )}
 

@@ -1,0 +1,98 @@
+.institution-shell { grid-template-columns: 16rem minmax(0, 1fr); }
+.institution-sidebar .admin-sidebar-head { display: flex; align-items: center; justify-content: space-between; }
+.institution-sidebar .admin-nav > p { margin-block-start: var(--space-4); }
+.institution-sidebar .admin-nav > button { min-height: 43px; }
+.institution-topbar { justify-content: flex-start; }
+.institution-topbar .institution-picker {
+  display: flex; align-items: center; gap: var(--space-2); margin: 0 0 0 auto;
+}
+.institution-topbar .institution-picker select { max-width: clamp(9rem, 25vw, 19rem); text-overflow: ellipsis; }
+.institution-nav-toggle {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0; flex: 0 0 auto;
+}
+.institution-nav-mobile, .institution-nav-scrim { display: none; }
+
+.institution-hero {
+  align-items: center; padding: clamp(1rem, 2.6vw, 2.2rem);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: radial-gradient(ellipse at top left, var(--accent-soft), transparent 77%), var(--panel);
+}
+.institution-identity { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.institution-identity h1 { margin: 0; overflow-wrap: anywhere; }
+.institution-emblem {
+  display: grid; place-items: center; flex: none;
+  width: clamp(3rem, 6.2vw, 4.6rem); aspect-ratio: 1;
+  font-size: clamp(1.06rem, 2.5vw, 1.55rem); font-weight: 760; letter-spacing: -.05em;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-md);
+}
+.institution-hero-meta { display: grid; justify-items: end; gap: var(--space-3); flex: 0 0 auto; }
+.institution-hero-meta dl { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; }
+.institution-hero-meta dt { color: var(--muted); font-size: .76rem; }
+.institution-hero-meta dd { margin: 0; font-size: .88rem; font-weight: 680; }
+.institution-metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.institution-metric-grid .admin-metric { align-items: center; }
+.institution-metric-grid .admin-metric dd { margin-bottom: 0; }
+.institution-quick-actions .admin-actions { margin-top: var(--space-3); }
+.institution-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: var(--space-4); }
+.institution-dashboard-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.institution-chart-rows, .institution-setup ol {
+  display: grid; gap: var(--space-3); list-style: none; padding: 0; margin: var(--space-4) 0 0;
+}
+.institution-chart-rows li > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.institution-chart-rows button, .institution-setup li button { min-height: 32px; padding: 0; text-align: start; }
+.institution-chart-rows li > small { color: var(--muted); font-size: .75rem; }
+.institution-chart-track { height: .55rem; border-radius: 99px; overflow: hidden; background: var(--color-surface-2); }
+.institution-chart-track > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.institution-setup progress { width: 100%; height: .65rem; margin-block-start: var(--space-3); accent-color: var(--accent); }
+.institution-setup li { display: flex; align-items: center; gap: var(--space-3); font-size: .87rem; min-height: 32px; }
+.institution-step {
+  display: grid; place-items: center; flex: none; width: 20px; height: 20px;
+  border-radius: 50%; color: var(--accent); border: 1px solid var(--line-strong);
+}
+.institution-step.is-done { background: var(--accent-soft); border-color: var(--accent); }
+.institution-history { margin-block-start: var(--space-5); }
+.institution-dialog-actions { margin-block-start: var(--space-3); }
+.institution-course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr)); gap: var(--space-3); }
+.institution-course-grid article { background: var(--color-surface-2); }
+.institution-course-grid h3, .institution-course > .admin-section-line { margin-block-end: var(--space-2); }
+.institution-course-grid h3 { margin-block-start: var(--space-3); }
+.institution-course li a { overflow-wrap: anywhere; }
+.institution-lesson-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: var(--space-4); line-height: 1.65; }
+.institution-directory .admin-table-scroll td { overflow-wrap: anywhere; }
+
+@media (min-width: 961px) {
+  .institution-shell.is-collapsed { grid-template-columns: 4.5rem minmax(0, 1fr); }
+  .is-collapsed .institution-sidebar { padding-inline: var(--space-2); }
+  .is-collapsed .institution-sidebar .admin-brand > div,
+  .is-collapsed .institution-sidebar .admin-nav > p,
+  .is-collapsed .institution-sidebar .admin-nav > button > span { display: none; }
+  .is-collapsed .institution-sidebar .admin-sidebar-head,
+  .is-collapsed .institution-sidebar .admin-nav > button { justify-content: center; padding-inline: 0; }
+  .is-collapsed .institution-sidebar .admin-nav { padding-top: var(--space-3); }
+}
+@media (max-width: 1120px) {
+  .institution-hero { align-items: start; flex-direction: column; }
+  .institution-hero-meta { justify-items: start; }
+}
+@media (max-width: 960px) {
+  .institution-nav-desktop, .institution-shell .institution-sidebar { display: none; }
+  .institution-nav-mobile { display: grid; }
+  .institution-shell.is-mobile-open .institution-sidebar {
+    display: block; position: fixed; z-index: 31; inset: 0 auto 0 0;
+    width: min(19rem, 87vw); max-height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .institution-nav-scrim {
+    display: block; position: fixed; inset: 0; z-index: 30; border: 0; border-radius: 0; background: rgb(0 0 0 / 58%);
+  }
+}
+@media (max-width: 650px) {
+  .institution-topbar .institution-picker > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .institution-topbar .institution-picker { flex: 1; min-width: 0; margin: 0; }
+  .institution-topbar .institution-picker select { max-width: 100%; }
+  .institution-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .institution-metric-grid .admin-metric { align-items: start; }
+  .institution-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .institution-identity { gap: var(--space-3); }
+  .institution-directory .admin-table-scroll table { min-width: 33rem; }
+}

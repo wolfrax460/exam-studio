@@ -49,6 +49,10 @@ const emptyFile = () => ({
   groups: [],
   groupMembers: [],
   assignments: [],
+  academicStructures: [],
+  institutionStudents: [],
+  institutionStaff: [],
+  institutionCourses: [],
 });
 
 function readFileStore() {
@@ -77,6 +81,10 @@ function readFileStore() {
         groups: Array.isArray(raw.groups) ? raw.groups : [],
         groupMembers: Array.isArray(raw.groupMembers) ? raw.groupMembers : [],
         assignments: Array.isArray(raw.assignments) ? raw.assignments : [],
+        academicStructures: Array.isArray(raw.academicStructures) ? raw.academicStructures : [],
+        institutionStudents: Array.isArray(raw.institutionStudents) ? raw.institutionStudents : [],
+        institutionStaff: Array.isArray(raw.institutionStaff) ? raw.institutionStaff : [],
+        institutionCourses: Array.isArray(raw.institutionCourses) ? raw.institutionCourses : [],
       };
     } else {
       file = emptyFile();

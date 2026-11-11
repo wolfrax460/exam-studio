@@ -3,7 +3,7 @@ import { post, put } from './api.js';
 import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuery } from './AdminData.jsx';
 import Modal from './ui/Modal.jsx';
 
-const types = { school: 'School', college: 'College', university: 'University', training: 'Training institution', other: 'Other' };
+export const institutionTypes = { school: 'School', college: 'College', university: 'University', training: 'Training institution', other: 'Other' };
 const statuses = { pending: 'Pending review', active: 'Active', suspended: 'Suspended' };
 
 function Status({ status }) {
@@ -11,10 +11,10 @@ function Status({ status }) {
   return <span className={`admin-badge${style}`}>{statuses[status]}</span>;
 }
 
-function Pages({ page, setPage, hasMore }) {
+export function InstitutionPages({ page, setPage, hasMore }) {
   if (page === 1 && !hasMore) return null;
   return (
-    <nav className="admin-pagination" aria-label="Institution requests pages">
+    <nav className="admin-pagination" aria-label="Institution list pages">
       <span>Page {page}</span>
       <div>
         <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button>
@@ -24,20 +24,13 @@ function Pages({ page, setPage, hasMore }) {
   );
 }
 
-export function InstitutionOnboarding({ onClose }) {
-  const [page, setPage] = useState(1);
-  const query = useAdminQuery(`/institutions/requests?page=${page}`);
+export function InstitutionRegistration({ onClose, onSubmitted, onRefreshApplications }) {
   const action = useAdminAction();
 
   async function submit(event) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const application = Object.fromEntries(new FormData(form));
-    if (await action.run(() => post('/institutions/requests', application), 'Application submitted for review.')) {
-      form.reset();
-      setPage(1);
-      query.reload();
-    }
+    const application = Object.fromEntries(new FormData(event.currentTarget));
+    if (await action.run(() => post('/institutions/requests', application))) onSubmitted();
   }
 
   return (
@@ -50,7 +43,7 @@ export function InstitutionOnboarding({ onClose }) {
             <label>Institution name<input name="name" required maxLength={160} /></label>
             <label>Institution type<select name="type" required defaultValue="">
               <option value="" disabled>Select institution type</option>
-              {Object.entries(types).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(institutionTypes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select></label>
             <label>Country<input name="country" required maxLength={100} /></label>
             <label>Location (optional)<input name="location" maxLength={160} /></label>
@@ -61,24 +54,47 @@ export function InstitutionOnboarding({ onClose }) {
         </fieldset>
         <div className="admin-actions">
           <button className="primary" type="submit" disabled={action.pending}>{action.pending ? 'Submitting…' : 'Submit application'}</button>
-          <button type="button" onClick={onClose}>Close</button>
+          <button type="button" onClick={onClose}>Cancel</button>
         </div>
         <Feedback feedback={action.feedback} />
+        {action.feedback?.error && <button type="button" className="link" onClick={onRefreshApplications}>Back to applications</button>}
       </form>
-      <section className="institution-requests" aria-label="Your institution requests">
-        <h3>Your institution requests</h3>
-        <LoadState query={query} name="institution requests">
-          {query.data?.items.length ? (
-            <ul className="institution-status-list">
-              {query.data.items.map((item) => (
-                <li key={item.id}><div><strong>{item.name}</strong><small>{types[item.type]} · {item.country || 'Country unavailable'}</small></div><Status status={item.status} /></li>
-              ))}
-            </ul>
-          ) : <EmptyRows>You have no institution requests.</EmptyRows>}
-          <Pages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
-        </LoadState>
-      </section>
     </Modal>
+  );
+}
+
+export function InstitutionApplications({ query, page, setPage, workspaces, onOpen }) {
+  return (
+    <section className="admin-panel" aria-labelledby="institution-applications">
+      <div className="admin-section-line">
+        <h2 id="institution-applications">Your applications</h2>
+        <button type="button" onClick={query.reload} disabled={query.pending}>Refresh status</button>
+      </div>
+      <LoadState query={query} name="applications">
+        {query.data?.items.length ? (
+          <ul className="institution-status-list">
+            {query.data.items.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <small>{institutionTypes[item.type]} · {item.country || 'Country unavailable'} · {timestamp(item.createdAt)}</small>
+                  {item.status === 'pending' && <small>A platform administrator will review your application.</small>}
+                  {item.status === 'suspended' && <small>Contact your institution or platform administrator.</small>}
+                  {item.status === 'active' && !workspaces.some(({ id }) => id === item.id) &&
+                    <small>Workspace access will appear here when it is available to your account.</small>}
+                </div>
+                <div className="admin-actions">
+                  <Status status={item.status} />
+                  {item.status === 'active' && workspaces.some(({ id }) => id === item.id) &&
+                    <button type="button" aria-label={`Open approved workspace ${item.name}`} onClick={() => onOpen(item.id)}>Open workspace</button>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <EmptyRows>You haven’t submitted an institution application.</EmptyRows>}
+        <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
+      </LoadState>
+    </section>
   );
 }
 
@@ -136,7 +152,7 @@ export function InstitutionReview() {
             {query.data.items.map((item) => (
               <article className="admin-panel" key={item.id}>
                 <div className="admin-section-line">
-                  <div><h3>{item.name}</h3><p className="admin-muted">{types[item.type]} · {item.country || 'Country unavailable'}</p></div>
+                  <div><h3>{item.name}</h3><p className="admin-muted">{institutionTypes[item.type]} · {item.country || 'Country unavailable'}</p></div>
                   <Status status={item.status} />
                 </div>
                 <dl className="admin-key-values">
@@ -169,7 +185,7 @@ export function InstitutionReview() {
             ))}
           </div>
         ) : <EmptyRows>No institutions match this status.</EmptyRows>}
-        <Pages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
+        <InstitutionPages page={page} setPage={setPage} hasMore={query.data?.hasMore} />
       </LoadState>
       {selected && <ReviewDialog item={selected} onClose={closeReview} onSaved={(notice) => {
         setMessage(notice);

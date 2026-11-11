@@ -13,6 +13,7 @@ import {
 } from './repository.js';
 import Institution from './models/Institution.js';
 import Membership from './models/Membership.js';
+import User from './models/User.js';
 import Group from './models/Group.js';
 import GroupMember from './models/GroupMember.js';
 import Assignment from './models/Assignment.js';
@@ -101,6 +102,7 @@ function normalizeMembership(doc) {
     invitedEmail: doc.invitedEmail || '',
     createdAt: asIso(doc.createdAt),
     acceptedAt: asIso(doc.acceptedAt),
+    inviteExpiresAt: asIso(doc.inviteExpiresAt),
   };
 }
 
@@ -377,17 +379,136 @@ export async function listMembershipsForUser(userId) {
     .map(normalizeMembership);
 }
 
-export async function listMembershipsForInstitution(institutionId) {
+export async function listMembershipsForInstitution(institutionId, { statuses, offset = 0, limit } = {}) {
   await initStorage();
   if (isMongo()) {
     if (!mongoose.isValidObjectId(institutionId)) return [];
-    const docs = await Membership.find({ institutionId }).sort({ createdAt: -1 }).lean();
+    const filter = { institutionId, ...(statuses && { status: { $in: statuses } }) };
+    const query = Membership.find(filter).sort({ createdAt: -1, _id: -1 }).skip(offset);
+    if (limit) query.limit(limit);
+    const docs = await query.lean();
     return docs.map(normalizeMembership);
   }
   return ensureFileCollections().memberships
-    .filter((entry) => entry.institutionId === String(institutionId))
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .filter((entry) => entry.institutionId === String(institutionId) && (!statuses || statuses.includes(entry.status)))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.id.localeCompare(a.id))
+    .slice(offset, limit ? offset + limit : undefined)
     .map(normalizeMembership);
+}
+
+export async function findInstitutionMembership(institutionId, id) {
+  await initStorage();
+  const doc = isMongo()
+    ? (mongoose.isValidObjectId(id) && await Membership.findOne({ institutionId, _id: id }).lean())
+    : ensureFileCollections().memberships.find((entry) => entry.institutionId === institutionId && entry.id === id);
+  return doc ? normalizeMembership(doc) : null;
+}
+
+export async function listAuthorizedInstitutions(userId) {
+  const memberships = (await listMembershipsForUser(userId)).filter(({ status }) => status === 'active');
+  const roles = new Map(memberships.map(({ institutionId, role }) => [institutionId, role]));
+  const institutions = isMongo()
+    ? await Institution.find({ _id: { $in: [...roles.keys()] }, status: 'active' }).select('name type').lean()
+    : ensureFileCollections().institutions.filter(({ id, status }) => status === 'active' && roles.has(id));
+  return institutions.map((doc) => {
+    const id = String(doc._id ?? doc.id);
+    return { id, name: doc.name, type: doc.type, role: roles.get(id) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listInstitutionDirectory(institutionId, options, includeEmail) {
+  const memberships = await listMembershipsForInstitution(institutionId, options);
+  const ids = new Set(memberships.map(({ userId }) => userId));
+  const users = isMongo()
+    ? await User.find({ _id: { $in: [...ids] } }).select(includeEmail ? 'name email' : 'name').lean()
+    : getFileStore().users.filter(({ id }) => ids.has(id));
+  const byId = new Map(users.map((user) => [String(user._id ?? user.id), user]));
+  return memberships.map(({ id, userId, role, status, inviteExpiresAt }) => {
+    const user = byId.get(userId);
+    return { id, name: user?.name || 'Unavailable account', role, status, inviteExpiresAt, ...(includeEmail && { email: user?.email }) };
+  });
+}
+
+function writeFileMembership(records, index, record) {
+  const previous = records[index];
+  records[index] = record;
+  try {
+    saveFileStore();
+  } catch (error) {
+    if (previous) records[index] = previous;
+    else records.pop();
+    throw error;
+  }
+  return normalizeMembership(record);
+}
+
+export async function inviteWorkspaceMember({ userId, institutionId, email, role, invitedBy, inviteHash, inviteExpiresAt }) {
+  await initStorage();
+  const now = new Date();
+  const patch = {
+    userId, institutionId, role, invitedBy, invitedEmail: email, inviteHash, inviteExpiresAt,
+    status: 'invited', createdAt: now, acceptedAt: null,
+  };
+  const conflict = () => duplicateError('This account already has a membership or an outstanding invitation.');
+  if (isMongo()) {
+    await Membership.init();
+    try {
+      const doc = await Membership.findOneAndUpdate(
+        { userId, institutionId, $or: [{ status: 'removed' }, { status: 'invited', inviteExpiresAt: { $lte: now } }] },
+        { $set: patch }, { new: true, upsert: true, runValidators: true },
+      ).lean();
+      return normalizeMembership(doc);
+    } catch (error) {
+      if (error.code === 11000) throw conflict();
+      throw error;
+    }
+  }
+  const { memberships } = ensureFileCollections();
+  const index = memberships.findIndex((member) => member.userId === userId && member.institutionId === institutionId);
+  const previous = memberships[index];
+  if (previous && previous.status !== 'removed'
+    && !(previous.status === 'invited' && previous.inviteExpiresAt && new Date(previous.inviteExpiresAt) <= now)) throw conflict();
+  return writeFileMembership(memberships, index === -1 ? memberships.length : index, {
+    id: previous?.id || newId(), ...patch, createdAt: now.toISOString(), inviteExpiresAt: inviteExpiresAt.toISOString(),
+  });
+}
+
+export async function acceptWorkspaceInvitation(userId, inviteHash) {
+  await initStorage();
+  const now = new Date();
+  const filter = { userId, inviteHash, status: 'invited', inviteExpiresAt: { $gt: now } };
+  const patch = { status: 'active', acceptedAt: now, inviteHash: null, inviteExpiresAt: null };
+  if (isMongo()) {
+    const invitation = await Membership.findOne(filter).lean();
+    if (!invitation || !(await Institution.exists({ _id: invitation.institutionId, status: 'active' }))) return null;
+    const doc = await Membership.findOneAndUpdate({ _id: invitation._id, ...filter }, { $set: patch }, { new: true }).lean();
+    return doc ? normalizeMembership(doc) : null;
+  }
+  const store = ensureFileCollections();
+  const index = store.memberships.findIndex((member) => member.userId === userId && member.inviteHash === inviteHash
+    && member.status === 'invited' && new Date(member.inviteExpiresAt) > now);
+  const previous = store.memberships[index];
+  if (!previous || !store.institutions.some(({ id, status }) => id === previous.institutionId && status === 'active')) return null;
+  return writeFileMembership(store.memberships, index, { ...previous, ...patch, acceptedAt: now.toISOString() });
+}
+
+export async function changeWorkspaceMembership(institutionId, membershipId, patch) {
+  await initStorage();
+  const statuses = patch.status === 'removed' ? ['invited', 'active', 'suspended'] : ['active', 'suspended'];
+  const update = patch.status === 'removed' ? { ...patch, inviteHash: null, inviteExpiresAt: null } : patch;
+  if (isMongo()) {
+    if (!mongoose.isValidObjectId(membershipId)) return null;
+    const doc = await Membership.findOneAndUpdate(
+      { _id: membershipId, institutionId, status: { $in: statuses }, role: { $in: ['teacher', 'member'] } },
+      { $set: update }, { new: true, runValidators: true },
+    ).lean();
+    return doc ? normalizeMembership(doc) : null;
+  }
+  const { memberships } = ensureFileCollections();
+  const index = memberships.findIndex(({ id, institutionId: tenant, role, status }) =>
+    id === membershipId && tenant === institutionId && ['teacher', 'member'].includes(role) && statuses.includes(status));
+  if (index === -1) return null;
+  return writeFileMembership(memberships, index, { ...memberships[index], ...update });
 }
 
 // ---------------------------------------------------------------- groups

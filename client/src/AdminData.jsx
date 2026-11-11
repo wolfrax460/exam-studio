@@ -1,20 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { get } from './api.js';
 
-export function useAdminQuery(path) {
+export function useAdminQuery(path, institutionId, sessionUserId, onScopeLost) {
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((version) => version + 1), []);
   const [result, setResult] = useState({});
   useEffect(() => {
     if (!path) return undefined;
     const controller = new AbortController();
-    get(path, { signal: controller.signal }).then(
-      (data) => { if (!controller.signal.aborted) setResult({ path, revision, data }); },
-      (error) => { if (!controller.signal.aborted) setResult({ path, revision, error }); },
+    const headers = institutionId ? { 'X-Institution-Id': institutionId } : undefined;
+    get(path, { signal: controller.signal, headers }).then(
+      (data) => { if (!controller.signal.aborted) setResult({ path, institutionId, sessionUserId, revision, data }); },
+      (error) => {
+        if (controller.signal.aborted) return;
+        if (error.status === 404 || error.status === 403) onScopeLost?.();
+        setResult({ path, institutionId, sessionUserId, revision, error });
+      },
     );
     return () => controller.abort();
-  }, [path, revision]);
-  const current = result.path === path ? result : {};
+  }, [path, institutionId, sessionUserId, revision, onScopeLost]);
+  const current = result.path === path && result.institutionId === institutionId && result.sessionUserId === sessionUserId ? result : {};
   return {
     data: current.data,
     error: current.revision === revision ? current.error : undefined,
@@ -52,14 +57,14 @@ export function Feedback({ feedback }) {
   return <p className={`admin-feedback${feedback.error ? ' is-error' : ''}`} role={feedback.error ? 'alert' : 'status'}>{feedback.message}</p>;
 }
 
-export function LoadState({ query, name, children }) {
+export function LoadState({ query, name, loading = `Loading ${name}…`, children }) {
   if (query.error) return (
     <div className="admin-empty" role="alert">
       <p>Could not load {name}. {query.error.message}</p>
       <button type="button" onClick={query.reload}>Try again</button>
     </div>
   );
-  if (!query.data) return <div className="admin-empty" role="status">Loading {name}…</div>;
+  if (!query.data) return <div className="admin-empty" role="status">{loading}</div>;
   return <div aria-busy={query.pending}>{children}</div>;
 }
 
