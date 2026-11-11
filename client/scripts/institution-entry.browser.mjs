@@ -423,6 +423,46 @@ it('uses real enrollment, academic records and staff profiles in the institution
   await capture(mobile, '19-mobile-teacher-student-details');
   await button(teacherDialog, 'Close').click();
   await teacherDialog.waitFor({ state: 'hidden' });
+
+  await button(page, 'Courses').click();
+  await button(page, 'Create course').click();
+  await dialog.getByLabel('Title', { exact: true }).fill('Mathematics foundations');
+  await dialog.getByRole('combobox', { name: 'Academic year', exact: true }).selectOption({ label: '2026–2027' });
+  await dialog.getByRole('combobox', { name: 'Class', exact: true }).selectOption({ label: 'Year One' });
+  await dialog.getByRole('combobox', { name: 'Subject', exact: true }).selectOption({ label: 'Mathematics' });
+  await dialog.getByRole('combobox', { name: 'Assigned teacher', exact: true }).selectOption({ label: instructor.name });
+  await dialog.getByRole('combobox', { name: 'Course status', exact: true }).selectOption('published');
+  await button(dialog, 'Save course').click();
+  await heading(page, 'Mathematics foundations').waitFor();
+  for (const [title, publish] of [['Number patterns', true], ['Teacher draft', false]]) {
+    await button(page, 'Add lesson').click();
+    await dialog.getByLabel('Title', { exact: true }).fill(title);
+    await dialog.getByLabel('Lesson content').fill('Find the next number and explain your reasoning.');
+    if (publish) await dialog.getByLabel('Publish lesson').check();
+    await button(dialog, 'Save lesson').click();
+    await dialog.waitFor({ state: 'hidden' });
+    await button(page, title).waitFor();
+  }
+  await button(page, 'Move Teacher draft up').click();
+  await page.locator('ol').getByRole('button', { name: 'Teacher draft', exact: true }).waitFor();
+  await capture(page, '21-course-management');
+  await button(page, 'Back to courses').click();
+  await button(page, 'Open course Mathematics foundations').waitFor();
+  await capture(page, '22-course-catalog');
+
+  const learnerPage = await newPage(t, { width: 390, height: 844 });
+  await signIn(learnerPage, learner);
+  await button(learnerPage, 'Open workspace Greenfield Academy').click();
+  await heading(learnerPage, 'Greenfield Academy').waitFor();
+  await button(learnerPage, 'Toggle institution navigation').click();
+  await button(learnerPage, 'Courses').click();
+  await button(learnerPage, 'Open course Mathematics foundations').click();
+  await button(learnerPage, 'Number patterns').click();
+  await learnerPage.getByText('Find the next number and explain your reasoning.').waitFor();
+  assert.equal(await button(learnerPage, 'Teacher draft').count(), 0);
+  assert.equal(await button(learnerPage, 'Edit lesson').count(), 0);
+  await learnerPage.getByText('Find the next number and explain your reasoning.').scrollIntoViewIfNeeded();
+  await capture(learnerPage, '23-mobile-learner-lesson');
 });
 
 it('preserves the Coming Soon fallback and personal sign-in when disabled', { timeout: 35_000 }, async (t) => {

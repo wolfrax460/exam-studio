@@ -4,6 +4,7 @@ import { EmptyRows, Feedback, LoadState, timestamp, useAdminAction, useAdminQuer
 import { InstitutionPages, institutionTypes } from './Institutions.jsx';
 import Academics from './Academics.jsx';
 import InstitutionDashboard from './InstitutionDashboard.jsx';
+import InstitutionCourses from './InstitutionCourses.jsx';
 import { StaffDirectory, StaffProfileDialog, Students } from './InstitutionPeople.jsx';
 import Modal from './ui/Modal.jsx';
 import Icon from './ui/Icon.jsx';
@@ -237,6 +238,7 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
               {nav('Classes', 'modules', view === 'academics' && ['classes', 'sections'].includes(academic.kind), () => openAcademics('classes'))}
               {nav('Subjects', 'book', view === 'academics' && ['subjects', 'assignments'].includes(academic.kind), () => openAcademics('subjects'))}
             </>}
+            {nav('Courses', 'book', view === 'courses', () => open('courses'))}
             <p>People</p>
             {isStaff && nav('Students', 'user', view === 'students', () => openStudents())}
             {isStaff && nav('Teachers', 'book', view === 'teachers', () => open('teachers'))}
@@ -289,6 +291,7 @@ export default function InstitutionWorkspace({ institutionId, workspaces, onSwit
             {isStaff && view === 'students' && <Students key={`${studentList.classId}:${studentList.create}`} institutionId={institutionId}
               isAdmin={isAdmin} initialClass={studentList.classId} startAdding={studentList.create}
               onChanged={overview.reload} onScopeLost={onScopeLost} />}
+            {workspace && view === 'courses' && <InstitutionCourses institutionId={institutionId} isAdmin={isAdmin} onScopeLost={onScopeLost} />}
             {((isStaff && view === 'teachers') || (isAdmin && view === 'staff')) && <StaffDirectory key={view} institutionId={institutionId}
               kind={view} isAdmin={isAdmin} onInvite={() => open('invite-teacher')} onMemberships={() => open('directory')}
               onAssignments={() => openAcademics('assignments')} onScopeLost={onScopeLost} />}

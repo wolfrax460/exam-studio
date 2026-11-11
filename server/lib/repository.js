@@ -52,6 +52,7 @@ const emptyFile = () => ({
   academicStructures: [],
   institutionStudents: [],
   institutionStaff: [],
+  institutionCourses: [],
 });
 
 function readFileStore() {
@@ -83,6 +84,7 @@ function readFileStore() {
         academicStructures: Array.isArray(raw.academicStructures) ? raw.academicStructures : [],
         institutionStudents: Array.isArray(raw.institutionStudents) ? raw.institutionStudents : [],
         institutionStaff: Array.isArray(raw.institutionStaff) ? raw.institutionStaff : [],
+        institutionCourses: Array.isArray(raw.institutionCourses) ? raw.institutionCourses : [],
       };
     } else {
       file = emptyFile();

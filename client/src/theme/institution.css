@@ -53,6 +53,12 @@
 .institution-step.is-done { background: var(--accent-soft); border-color: var(--accent); }
 .institution-history { margin-block-start: var(--space-5); }
 .institution-dialog-actions { margin-block-start: var(--space-3); }
+.institution-course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr)); gap: var(--space-3); }
+.institution-course-grid article { background: var(--color-surface-2); }
+.institution-course-grid h3, .institution-course > .admin-section-line { margin-block-end: var(--space-2); }
+.institution-course-grid h3 { margin-block-start: var(--space-3); }
+.institution-course li a { overflow-wrap: anywhere; }
+.institution-lesson-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: var(--space-4); line-height: 1.65; }
 .institution-directory .admin-table-scroll td { overflow-wrap: anywhere; }
 
 @media (min-width: 961px) {

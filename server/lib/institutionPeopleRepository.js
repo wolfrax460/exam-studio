@@ -28,6 +28,14 @@ function studentView(record, privateFields) {
   };
 }
 
+export async function findActiveStudentEnrollment(institutionId, membershipId) {
+  await initStorage();
+  const match = { institutionId, membershipId, status: 'active' };
+  return isMongo()
+    ? InstitutionStudent.findOne(match).select('classId sectionId -_id').lean()
+    : students().find((record) => record.institutionId === institutionId && record.membershipId === membershipId && record.status === 'active');
+}
+
 export async function listStudents(institutionId, { search, classId, status, offset, limit }, scope) {
   await initStorage();
   if (scope?.length === 0 || (scope && status && status !== 'active')) return [];

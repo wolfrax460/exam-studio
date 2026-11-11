@@ -3,6 +3,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { academicRoutes } from './academicRoutes.js';
+import { courseRoutes } from './courseRoutes.js';
 import { readAcademicStructure } from './academicRepository.js';
 import { authenticateUser } from './auth.js';
 import { httpError } from './errors.js';
@@ -149,6 +150,7 @@ institutionRoutes.get('/institutions/workspace', privateRoute, resolveWorkspace,
 const workspaceGuard = [privateRoute, resolveWorkspace, requireInstitution];
 const memberAdminGuard = [...workspaceGuard, requireInstitutionAdmin];
 institutionRoutes.use('/institutions/academics', academicRoutes(workspaceGuard, memberAdminGuard));
+institutionRoutes.use('/institutions/courses', courseRoutes(workspaceGuard));
 institutionRoutes.use('/institutions/people', institutionPeopleRoutes(workspaceGuard, memberAdminGuard));
 
 institutionRoutes.get('/institutions/workspaces', privateRoute, handle(async (req, res) => {
