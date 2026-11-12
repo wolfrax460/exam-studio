@@ -20,7 +20,7 @@ import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus, s
 import { normalizeEmail, findUserByEmail, createUser, countUsers, findUserById, verifyEmailByTokenHash } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
-  generateToken, verifyToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
+  generateToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
 } from './lib/auth.js';
 import { updateSettings, getSettings } from './lib/settings.js';
 import { PROVIDERS, activeProviderId, providerCatalog, runWithUserAI, resolve as resolveProvider } from './lib/providers.js';
@@ -401,34 +401,41 @@ async function publicRecordGeneration(ipHash) {
 }
 
 
+async function activePatAccount(token) {
+  if (!token.startsWith('est_')) throw httpError(401, 'Invalid or expired token.');
+  const info = await verifyPatToken(token);
+  if (!info) throw httpError(401, 'Invalid or expired token.');
+  const user = await findUserById(info.userId);
+  if (!user) throw httpError(401, 'Account no longer exists.');
+  if (user.active === false) throw httpError(403, 'Account disabled.');
+  return { user, scopes: info.scopes };
+}
+
+function hasScope(scopes, scope) {
+  if (!Array.isArray(scopes)) return false;
+  return scopes.includes('*') || scopes.includes(scope) || (scope === 'library:read' && scopes.includes('read'));
+}
+
+const requireScope = (scope) => (req, _res, next) => {
+  if (!hasScope(req.scopes, scope)) return next(httpError(403, 'This API token does not have the required permission.'));
+  next();
+};
+
 async function authenticateAny(req, res, next) {
   const header = req.headers?.authorization || '';
   const token = /^Bearer\s+(.+)$/i.exec(header.trim())?.[1]?.trim() || header.trim();
-  if (!token) return next(httpError(401, 'Please sign in to continue.'));
-  if (token.startsWith('est_')) {
-    const info = await verifyPatToken(token);
-    if (!info) return next(httpError(401, 'Invalid or expired token.'));
-    const user = await findUserById(info.userId);
-    if (!user) return next(httpError(401, 'Account no longer exists.'));
-    req.user = user;
-    req.userId = user.id;
-    req.scopes = info.scopes;
-    return next();
+  if (!token.startsWith('est_')) {
+    return authenticateUser(req, res, (error) => {
+      if (error) return next(error);
+      req.scopes = ['*'];
+      next();
+    });
   }
-  // JWT
-  try {
-    const decoded = verifyToken(token);
-    const id = decoded.sub || decoded.userId;
-    const user = await findUserById(id);
-    if (!user) return next(httpError(401, 'Account no longer exists.'));
-    if (user.active === false) return next(httpError(403, 'Account disabled.'));
-    req.user = user;
-    req.userId = user.id;
-    req.scopes = ['*'];
-    return next();
-  } catch (e) {
-    return next(e.status ? e : httpError(401, 'Invalid session.'));
-  }
+  const { user, scopes } = await activePatAccount(token);
+  req.user = user;
+  req.userId = user.id;
+  req.scopes = scopes;
+  next();
 }
 
 // ---------------------------------------------------------------- helpers
@@ -808,10 +815,10 @@ app.get('/api/v1/public/plans', wrap(async (_req, res) => {
 app.get('/api/v1/openapi.json', wrap(async (_req, res) => {
   res.json(OPENAPI_SPEC);
 }));
-app.use('/api/v1', authenticateAny);
+app.use('/api/v1', wrap(authenticateAny));
 app.use('/api/v1', withUserAI);
 app.get('/api/v1/me/quota', wrap(async (req, res) => { res.json({ plan: await admin.getUserPlan(req.user.id), quota: await currentQuotaStatus(req.user.id), ownProvider: Boolean(req.userAI?.apiKey) }); }));
-app.get('/api/v1/library', wrap(async (req, res) => { const items = await listItems(req.user.id); res.json({ items }); }));
+app.get('/api/v1/library', requireScope('library:read'), wrap(async (req, res) => { const items = await listItems(req.user.id); res.json({ items }); }));
 app.get('/api/v1/notes/structure', wrap(async (req, res) => { const text = String(req.query.text || ''); const structure = detectStructure(text, req.query.title); res.json({ structure }); }));
 
 // Remote MCP (streamable HTTP) - session-aware, shares tools with the stdio server.
@@ -1053,26 +1060,24 @@ app.get('/mcp/public', (_req, res) => {
   });
 });
 
-app.delete('/mcp/:token', (req, res, next) => {
-  if (req.params.token === 'public') return next();
+const deleteMcpSession = wrap(async (req, res) => {
+  const { user } = await activePatAccount(mcpTokenFromReq(req));
   const sessionId = req.headers['mcp-session-id'];
   if (!sessionId) return res.status(400).json({ error: 'mcp-session-id header required.' });
-  if (!mcpTransports.has(String(sessionId))) {
+  const entry = mcpTransports.get(String(sessionId));
+  if (!entry || entry.userId !== user.id) {
     return res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
   }
   mcpTransports.delete(String(sessionId));
+  await entry.transport.close();
   return res.status(204).end();
 });
 
-app.delete('/mcp', (req, res) => {
-  const sessionId = req.headers['mcp-session-id'];
-  if (!sessionId) return res.status(400).json({ error: 'mcp-session-id header required.' });
-  if (!mcpTransports.has(String(sessionId))) {
-    return res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
-  }
-  mcpTransports.delete(String(sessionId));
-  return res.status(204).end();
+app.delete('/mcp/:token', (req, res, next) => {
+  if (req.params.token === 'public') return next();
+  return deleteMcpSession(req, res, next);
 });
+app.delete('/mcp', deleteMcpSession);
 
 app.delete('/mcp/public', (req, res) => {
   const sessionId = req.headers['mcp-session-id'];
@@ -1100,21 +1105,25 @@ app.get('/favicon.ico', (_req, res) => {
 // sent either as a Bearer header or embedded in the path (/mcp/<token>). Claude and ChatGPT
 // connectors with "No authentication" cannot send headers, so the path form is required.
 async function mcpHandler(req, res) {
-  const token = mcpTokenFromReq(req);
-  if (!token || !token.startsWith('est_')) {
+  let account;
+  try {
+    account = await activePatAccount(mcpTokenFromReq(req));
+  } catch (error) {
+    if (error.status !== 401) throw error;
     return res.status(401).json({
       error: 'invalid_api_key',
       message: 'Create an API key in Exam Studio > Settings > API Tokens and put it in the connector URL: https://examstudio.duckdns.org/mcp/<your-key>',
     });
   }
-  const info = await verifyPatToken(token);
-  if (!info) {
-    return res.status(401).json({
-      error: 'invalid_api_key',
-      message: 'Create an API key in Exam Studio > Settings > API Tokens and put it in the connector URL: https://examstudio.duckdns.org/mcp/<your-key>',
-    });
+  const { user: { id: userId }, scopes } = account;
+  const calls = Array.isArray(req.body) ? req.body : [req.body];
+  for (const call of calls) {
+    if (call?.method !== 'tools/call') continue;
+    const { name, arguments: args } = call.params || {};
+    const scope = PUBLIC_GEN_TOOLS_SET.has(name) ? 'generate:write'
+      : name === 'exam_studio_library' ? (args?.action === 'save' ? 'library:write' : 'library:read') : null;
+    if (scope && !hasScope(scopes, scope)) throw httpError(403, 'This API token does not have the required permission.');
   }
-  const userId = info.userId;
 
   const sessionId = req.headers['mcp-session-id'] || req.query.session_id;
   if (sessionId && !mcpTransports.has(String(sessionId))) {
@@ -1145,7 +1154,7 @@ async function mcpHandler(req, res) {
   }
 }
 
-app.post('/api/v1/generate/handout', wrap(async (req, res) => {
+app.post('/api/v1/generate/handout', requireScope('generate:write'), wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'handout', text);
   await checkAndRecordGeneration(req.user.id);
@@ -1158,7 +1167,7 @@ app.post('/api/v1/generate/handout', wrap(async (req, res) => {
   } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
-app.post('/api/v1/generate/notes', wrap(async (req, res) => {
+app.post('/api/v1/generate/notes', requireScope('generate:write'), wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'notes', text);
   await checkAndRecordGeneration(req.user.id);
@@ -1171,7 +1180,7 @@ app.post('/api/v1/generate/notes', wrap(async (req, res) => {
   } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
-app.post('/api/v1/generate/flashcards', wrap(async (req, res) => {
+app.post('/api/v1/generate/flashcards', requireScope('generate:write'), wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'flashcards', text);
   await checkAndRecordGeneration(req.user.id);
@@ -1184,7 +1193,7 @@ app.post('/api/v1/generate/flashcards', wrap(async (req, res) => {
   } catch (e) { await publicRefundGeneration(req.user.id); try { admin.recordAIFailure(e); } catch {} throw e; }
 }));
 
-app.post('/api/v1/generate/exam', wrap(async (req, res) => {
+app.post('/api/v1/generate/exam', requireScope('generate:write'), wrap(async (req, res) => {
   const text = notesFrom(req.body);
   if (!req.userAI?.apiKey) await admin.enforceLimits(req.user.id, 'exam', text);
   await checkAndRecordGeneration(req.user.id);

@@ -56,7 +56,58 @@ describe('password recovery', () => {
     const outcomes = await Promise.all([reset(), reset()]);
     assert.deepEqual(outcomes.map(({ status }) => status).sort(), [200, 400]);
     assert.equal((await call(api.base, '/api/library', { token: user.token })).status, 401);
+    assert.equal((await call(api.base, '/api/v1/library', { token: user.token })).status, 401);
     assert.equal((await call(api.base, '/api/auth/login', { method: 'POST', body: { email: user.email, password } })).status, 200);
+  });
+});
+
+describe('API token permissions', () => {
+  async function issueToken(user, scopes) {
+    const response = await call(api.base, '/api/tokens', { method: 'POST', token: user.token, body: { scopes } });
+    assert.equal(response.status, 201);
+    return response.body.token;
+  }
+
+  it('limits each token to its REST scopes and respects account deactivation', async () => {
+    const owner = await makeUser(api.base);
+    const reader = await issueToken(owner, ['read']);
+    const writer = await issueToken(owner, ['generate:write']);
+    const request = (token) => call(api.base, '/api/v1/generate/notes', {
+      method: 'POST', token, body: { text: 'A database uses rows and tables to organize records. '.repeat(4) },
+    });
+    assert.equal((await call(api.base, '/api/v1/library', { token: reader })).status, 200);
+    assert.equal((await request(reader)).status, 403);
+    assert.equal((await request(writer)).status, 200);
+    assert.equal((await call(api.base, '/api/v1/library', { token: writer })).status, 403);
+    await User.updateOne({ email: owner.email }, { active: false });
+    assert.equal((await call(api.base, '/api/v1/library', { token: reader })).status, 403);
+  });
+
+  it('enforces MCP tool permissions and closes sessions only for their owner', async () => {
+    const owner = await makeUser(api.base);
+    const other = await makeUser(api.base);
+    const reader = await issueToken(owner, ['library:read']);
+    const otherToken = await issueToken(other, ['library:read']);
+    const endpoint = api.base + '/mcp';
+    const headers = { authorization: 'Bearer ' + reader, accept: 'application/json, text/event-stream', 'content-type': 'application/json' };
+    const rpc = (method, params) => fetch(endpoint, { method: 'POST', headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    const initialized = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+    assert.equal(initialized.status, 200);
+    headers['mcp-session-id'] = initialized.headers.get('mcp-session-id');
+    assert.ok(headers['mcp-session-id']);
+    await initialized.text();
+    const list = await rpc('tools/call', { name: 'exam_studio_library', arguments: { action: 'list' } });
+    assert.equal(list.status, 200);
+    assert.match(await list.text(), /"result"/);
+    const save = await rpc('tools/call', { name: 'exam_studio_library', arguments: { action: 'save', kind: 'notes', data: { title: 'Synthetic notes' } } });
+    assert.equal(save.status, 403);
+    await save.text();
+    const close = (token) => fetch(endpoint, { method: 'DELETE', headers: { ...headers, authorization: 'Bearer ' + token } });
+    const denied = await close(otherToken);
+    assert.equal(denied.status, 404);
+    await denied.text();
+    assert.equal((await close(reader)).status, 204);
   });
 });
 
