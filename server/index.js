@@ -1449,27 +1449,26 @@ app.post('/api/export/notes-docx', optionalAuthenticateUser, wrap(async (req, re
 
 // ---------------------------------------------------------------- study handouts
 // A handout makes 20 to 120 sequential AI calls and can run for many minutes, so the client is
-// told how far it has got. The steps live in memory under an id the client chose: this is
-// throwaway state for one request, dropped as soon as the build finishes.
+// told how far it has got. Steps are temporary and keyed by the account and client job id.
 const handoutJobs = new Map();
 const JOB_TTL_MS = 60 * 60 * 1000;
-function rememberHandoutStep(jobId, userId, step) {
-  if (!jobId) return;
-  const job = handoutJobs.get(jobId) || { userId, steps: [], startedAt: Date.now(), done: false, cancelled: false };
-  job.steps.push(step);
-  handoutJobs.set(jobId, job);
-  for (const [id, other] of handoutJobs) {
-    if (Date.now() - other.startedAt > JOB_TTL_MS) handoutJobs.delete(id);
-  }
-}
+const handoutJobKey = (userId, jobId) => JSON.stringify([userId, jobId]);
 
 app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, withUserAI, wrap(async (req, res) => {
   const jobId = s(req.body?.jobId, 60);
   const units = (Array.isArray(req.body?.units) ? req.body.units : []).map((unit) => s(unit, 10)).filter(Boolean);
   const handoutText = notesFrom(req.body);
   if (req.user && !req.userAI?.apiKey) { await admin.enforceLimits(req.user.id, 'handout', handoutText); }
-  const job = jobId ? { userId: req.userId, steps: [], startedAt: Date.now(), done: false } : null;
-  if (job) handoutJobs.set(jobId, job);
+  const job = jobId ? { steps: [], startedAt: Date.now(), done: false, cancelled: false } : null;
+  if (job) {
+    for (const [key, other] of handoutJobs) {
+      if (job.startedAt - other.startedAt > JOB_TTL_MS) handoutJobs.delete(key);
+    }
+    const key = handoutJobKey(req.userId, jobId);
+    const previous = handoutJobs.get(key);
+    if (previous && !previous.done) throw httpError(409, 'This handout job is already running.');
+    handoutJobs.set(key, job);
+  }
   try {
     const started = Date.now();
     const handout = await generateHandout({
@@ -1479,29 +1478,28 @@ app.post('/api/handouts/generate', generateLimit, optionalAuthenticateUser, with
       units,
       includeRevision: req.body?.includeRevision !== false,
       includePractical: req.body?.includePractical !== false,
-      onProgress: (step) => rememberHandoutStep(jobId, req.userId, step),
-      shouldCancel: () => Boolean(handoutJobs.get(jobId)?.cancelled),
+      onProgress: (step) => job?.steps.push(step),
+      shouldCancel: () => Boolean(job?.cancelled),
     });
     if (req.user) { try { admin.recordAISuccess(Date.now() - started); } catch {} try { await admin.recordUsage({ userId: req.user.id, taskType: 'handout', estimatedTokens: Math.ceil(handoutText.length / 4), success: true }); } catch {} }
     res.json(handout);
   } catch (e) { try { if (req.user) admin.recordAIFailure(e); } catch {} throw e; }
   finally {
-    const finished = jobId && handoutJobs.get(jobId);
-    if (finished) finished.done = true;
+    if (job) job.done = true;
   }
 }));
 
 app.post('/api/handouts/cancel/:id', wrap(async (req, res) => {
-  const job = handoutJobs.get(req.params.id);
-  if (!job || job.userId !== req.userId) throw httpError(404, 'Unknown handout job.');
+  const job = handoutJobs.get(handoutJobKey(req.userId, req.params.id));
+  if (!job) throw httpError(404, 'Unknown handout job.');
   job.cancelled = true;
   res.json({ ok: true });
 }));
 
 app.get('/api/handouts/progress/:id', wrap(async (req, res) => {
-  const job = handoutJobs.get(req.params.id);
+  const job = handoutJobs.get(handoutJobKey(req.userId, req.params.id));
   // Never report another account's build, and never fail the poll: an unknown id is simply empty.
-  if (!job || job.userId !== req.userId) return res.json({ steps: [], done: true });
+  if (!job) return res.json({ steps: [], done: true });
   res.json({ steps: job.steps, done: job.done });
 }));
 

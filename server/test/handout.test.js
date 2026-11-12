@@ -271,6 +271,20 @@ describe('handout routes', () => {
     assert.equal(anonymous.status, 401);
   });
 
+  it('tracks separately generated jobs when two accounts use the same client job id', async () => {
+    const other = await makeUser(api.base);
+    const jobId = 'shared-client-job';
+    for (const session of [token, other.token]) {
+      const result = await call(api.base, '/api/handouts/generate', { method: 'POST', token: session,
+        body: { jobId, text: 'A relational database uses tables and keys. '.repeat(10) } });
+      assert.equal(result.status, 200);
+    }
+    for (const session of [token, other.token]) {
+      const result = await call(api.base, '/api/handouts/cancel/' + jobId, { method: 'POST', token: session });
+      assert.equal(result.status, 200);
+    }
+  });
+
   it('refuses to export when there is no handout', async () => {
     const { status, body } = await call(api.base, '/api/export/handout-docx', { method: 'POST', token, body: {} });
     assert.equal(status, 400);
