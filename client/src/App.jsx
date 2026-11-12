@@ -310,6 +310,11 @@ export default function App() {
 
   function acceptSession(session, signup) {
     if (!institutionEnabled) changeAccountMode(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('auth')) {
+      url.searchParams.delete('auth');
+      window.history.replaceState(window.history.state, '', url);
+    }
     setSession(session);
     setUser(session.user);
     setError('');
