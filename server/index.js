@@ -2403,19 +2403,15 @@ app.get('/api/me/quota', authenticateUser, wrap(async (req, res) => {
 const downloadsDir = path.resolve(__dirname, '../downloads');
 const VERCEL_ORIGIN = 'https://exams-studio.vercel.app';
 if (fs.existsSync(downloadsDir)) {
-  // Custom download handler: CORS for the landing origin on JSON only, attachment disposition on zips.
-  app.use('/downloads', (req, res, next) => {
-    const file = path.join(downloadsDir, req.path.slice('/downloads'.length));
-    fs.stat(file, (err, st) => {
-      if (err || !st.isFile()) return next();
-      res.set('Cache-Control', 'public, max-age=86400');
-      const isJson = file.endsWith('.json');
-      const isZip = file.endsWith('.zip');
-      if (isJson) res.set('Access-Control-Allow-Origin', VERCEL_ORIGIN);
-      if (isZip) res.set('Content-Disposition', `attachment; filename="${path.basename(file)}"`);
-      res.sendFile(file);
-    });
-  });
+  app.use('/downloads', express.static(downloadsDir, {
+    index: false,
+    redirect: false,
+    maxAge: '1d',
+    setHeaders(res, file) {
+      if (file.endsWith('.json')) res.setHeader('Access-Control-Allow-Origin', VERCEL_ORIGIN);
+      if (file.endsWith('.zip')) res.attachment(path.basename(file));
+    },
+  }));
 }
 app.use('/downloads', (_req, _res, next) => next(httpError(404, 'Not found.')));
 app.use('/api', (_req, _res, next) => next(httpError(404, 'Not found.')));
