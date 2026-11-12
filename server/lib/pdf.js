@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
-import { L, totalMarks, answerText, markingNote, QUESTION_TYPES, isSectionsExam, numberedItems, sectionMarks, marksLabel, examInstructions, SECTION_KINDS } from '../../shared/format.js';
+import { L, totalMarks, answerText, markingNote, QUESTION_TYPES, isSectionsExam, numberedItems, sectionChoiceKeyRows, sectionMarks, marksLabel, examInstructions, SECTION_KINDS } from '../../shared/format.js';
 
 const FONTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../assets/fonts');
 const PW = 595.28;
@@ -680,12 +680,7 @@ export async function sectionsKeyPdf(exam, meta = {}) {
     if (!entries.length) continue;
     heading(`SECTION ${section.id}: ${section.title || ''} \u2013 ${sectionMarks(section)} marks`);
     if (section.kind === 'mcq') {
-      const pairs = entries.map(({ number, item }) => [number, item.answer]);
-      for (let i = 0; i < pairs.length; i += 6) {
-        const row = [];
-        for (let j = 0; j < 6; j += 2) row.push(pairs[i + j]?.[0] ?? '', pairs[i + j]?.[1] ?? '');
-        table(['Q', 'Ans', 'Q', 'Ans', 'Q', 'Ans'], [row]);
-      }
+      table(['Q', 'Ans', 'Q', 'Ans', 'Q', 'Ans'], sectionChoiceKeyRows(entries, 3));
     } else if (section.kind === 'true_false') {
       table(['Q', 'Answer', 'Why'], entries.map(({ number, item }) => [number, item.answer, item.notes || '']));
     } else if (section.kind === 'fill_blank') {

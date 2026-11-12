@@ -5,7 +5,7 @@ import {
 } from 'docx';
 import {
   L, totalMarks, answerText, markingNote, QUESTION_TYPES,
-  isSectionsExam, numberedItems, sectionMarks, marksLabel, examInstructions, SECTION_KINDS,
+  isSectionsExam, numberedItems, sectionChoiceKeyRows, sectionMarks, marksLabel, examInstructions, SECTION_KINDS,
 } from '../../shared/format.js';
 
 const FONT = 'Arial';
@@ -518,14 +518,7 @@ export async function sectionsKeyDocx(exam, meta = {}) {
 
     if (section.kind === 'mcq') {
       // Compact two pairs per row, the way real schemes print a multiple-choice key.
-      const pairs = entries.map(({ number, item }) => [`${number}`, String(item.answer || '')]);
-      for (let i = 0; i < pairs.length; i += 4) {
-        const row = [];
-        for (let j = 0; j < 4; j += 2) {
-          row.push(pairs[i + j]?.[0] ?? '', pairs[i + j]?.[1] ?? '');
-        }
-        children.push(plainTable(['Q', 'Ans', 'Q', 'Ans'], [row], [1600, 1200, 1600, 1200], { header: i === 0 }));
-      }
+      children.push(plainTable(['Q', 'Ans', 'Q', 'Ans'], sectionChoiceKeyRows(entries, 2), [1600, 1200, 1600, 1200]));
     } else if (section.kind === 'true_false') {
       children.push(plainTable(['Q', 'Answer', 'Why'], entries.map(({ number, item }) => [`${number}`, String(item.answer || ''), item.notes || '']), [900, 1300, 7978], { header: true }));
     } else if (section.kind === 'fill_blank') {

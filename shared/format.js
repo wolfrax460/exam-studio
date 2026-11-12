@@ -126,6 +126,19 @@ export function numberedItems(exam) {  const out = [];
   return out;
 }
 
+export function sectionChoiceKeyRows(entries, pairsPerRow) {
+  const rows = [];
+  for (let start = 0; start < entries.length; start += pairsPerRow) {
+    const row = [];
+    for (let offset = 0; offset < pairsPerRow; offset += 1) {
+      const entry = entries[start + offset];
+      row.push(entry?.number ?? '', entry?.item.answer ?? '');
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 /** The marks one item is worth. Structured questions carry their own total. */
 export function itemMarks(item, section) {
   if (section?.kind === 'structured') return Number(item?.totalMarks) || 0;
