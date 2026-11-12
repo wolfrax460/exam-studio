@@ -30,7 +30,7 @@ function answerFor(item, options) {
   if (!answer) return '';
   if (options.length > 0 && /^[A-Za-z]$/.test(answer)) {
     const index = answer.toUpperCase().charCodeAt(0) - 65;
-    return options[index] || '';
+    return options[index] || (options.includes(answer) ? answer : '');
   }
   return answer;
 }
@@ -39,7 +39,8 @@ function baseQuestion(item, outcome, index, prompt) {
   const options = optionList(item);
   const answer = answerFor(item, options);
   if (!answer) return null;
-  if (options.length > 0) {
+  if (options.length > 0 && (!item.type || item.type === 'mcq')) {
+    if (options.length < 2 || !options.includes(answer)) return null;
     return {
       id: `imported-${outcome}-${index}-a`,
       outcome,
@@ -53,7 +54,8 @@ function baseQuestion(item, outcome, index, prompt) {
       reference: item.reference || 'Imported from a generated exam',
     };
   }
-  if (/^(true|false)$/i.test(answer)) {
+  if (item.type === 'mcq') return null;
+  if ((!item.type || item.type === 'true_false') && /^(true|false)$/i.test(answer)) {
     return {
       id: `imported-${outcome}-${index}-a`,
       outcome,
@@ -67,8 +69,8 @@ function baseQuestion(item, outcome, index, prompt) {
       reference: item.reference || 'Imported from a generated exam',
     };
   }
-  // Longer written answers cannot be auto-marked, so they are left behind.
-  if (answer.length > 60) return null;
+  if (item.type && item.type !== 'fill_blank') return null;
+  if (!item.type && answer.length > 60) return null;
   return {
     id: `imported-${outcome}-${index}-a`,
     outcome,
@@ -85,6 +87,7 @@ function baseQuestion(item, outcome, index, prompt) {
 
 // One generated question can hold several sub-items (each with its own options and answer).
 function questionsFrom(item, outcome, index) {
+  if (!item || (item.type && !['mcq', 'true_false', 'fill_blank'].includes(item.type))) return [];
   const prompt = String(item.text || item.prompt || '').trim();
   const items = Array.isArray(item.items) ? item.items : [];
 
@@ -156,7 +159,7 @@ export function importExam(exam) {
       const title = String(section.title || `Section ${String.fromCharCode(65 + sectionIndex)}`).trim();
       let added = 0;
       (section.items || []).forEach((item, itemIndex) => {
-        const lifted = questionsFrom(item, id, itemIndex);
+        const lifted = questionsFrom(item && { ...item, type: section.kind || item.type }, id, itemIndex);
         lifted.forEach((question, offset) => {
           questions.push({ ...question, id: `${question.id}-${offset}` });
           added += 1;
@@ -306,7 +309,10 @@ export function loadConfig() {
     const raw = window.localStorage.getItem(CONFIG_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (!Array.isArray(parsed.outcomes) || !parsed.outcomes.every(Number.isFinite)) delete parsed.outcomes;
+    if (!Array.isArray(parsed.types) || !parsed.types.every((type) => ['mcq', 'tf', 'fill'].includes(type))) delete parsed.types;
+    return parsed;
   } catch {
     return null;
   }

@@ -101,7 +101,7 @@ export default function Build({ module, outcomes, config, onChange, counts, avai
               })}
             </div>
             <p className="esx-hint">
-              Fill-in questions accept a short word or phrase; marking ignores case and punctuation.
+              Fill-in marking ignores case and a final period, question mark or exclamation point.
             </p>
           </section>
 

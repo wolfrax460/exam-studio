@@ -25,17 +25,19 @@ export function shuffle(items) {
   return copy;
 }
 
-export function normalize(value) {
-  return String(value || '')
+function normalize(value) {
+  return String(value ?? '')
+    .normalize('NFC')
     .toLowerCase()
-    .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .replace(/[.!?]$/u, '');
 }
 
 export function isCorrect(question, given) {
-  if (!given || !String(given).trim()) return false;
+  if (question.type === 'mcq') return Boolean(given) && given === question.answer;
   const attempt = normalize(given);
+  if (!attempt) return false;
   if (question.type === 'fill') {
     const accepted = [question.answer, ...(question.accept || [])].map(normalize);
     return accepted.includes(attempt);
