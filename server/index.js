@@ -17,7 +17,7 @@ import { examDocx, keyDocx, notesDocx, handoutDocx } from './lib/docx.js';
 import { handoutPdf, examPdf, keyPdf } from './lib/pdf.js';
 import { examCsv, keyCsv } from './lib/csv.js';
 import { listItems, getItem, saveItem, deleteItem, initStorage, storageStatus, storageMode } from './lib/store.js';
-import { normalizeEmail, findUserByEmail, createUser, countUsers, findUserById } from './lib/repository.js';
+import { normalizeEmail, findUserByEmail, createUser, countUsers, findUserById, verifyEmailByTokenHash } from './lib/repository.js';
 import {
   authenticateUser, optionalAuthenticateUser, validatePassword, hashPassword, verifyPassword,
   generateToken, verifyToken, publicUser, dummyCompare, JWT_EXPIRES_IN,
@@ -688,13 +688,10 @@ app.get('/api/usage', optionalAuthenticateUser, wrap(async (req, res) => {
 app.get('/api/auth/verify-email', wrap(async (req, res) => {
   const token = String(req.query?.token || '');
   if (!token) throw httpError(400, 'Verification token is required.');
+  if (!/^[a-f0-9]{64}$/.test(token)) throw httpError(400, 'Verification link is invalid or expired.');
   const hashed = crypto.createHash('sha256').update(token).digest('hex');
-  const user = await User.findOne({ emailVerificationTokenHash: hashed, emailVerificationExpires: { $gt: new Date() } });
+  const user = await verifyEmailByTokenHash(hashed);
   if (!user) throw httpError(400, 'Verification link is invalid or expired.');
-  user.emailVerified = true;
-  user.emailVerificationTokenHash = undefined;
-  user.emailVerificationExpires = undefined;
-  await user.save();
   res.json({ message: 'Email verified. You can now sign in.', user: publicUser(user) });
 }));
 

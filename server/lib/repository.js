@@ -207,7 +207,7 @@ export async function createUser({ email, name, passwordHash, role = 'student', 
   const wanted = normalizeEmail(email);
   if (mode === 'mongo') {
     const doc = await User.create({ email: wanted, name, passwordHash, role, planId, active, mustChangePassword, emailVerified, emailVerificationTokenHash, emailVerificationExpires });
-    return { id: doc._id.toString(), email: doc.email, name: doc.name, role: doc.role, planId: doc.planId ? doc.planId.toString() : null, active: doc.active, mustChangePassword: doc.mustChangePassword, tokenVersion: doc.tokenVersion || 0 };
+    return { id: doc._id.toString(), email: doc.email, name: doc.name, role: doc.role, planId: doc.planId ? doc.planId.toString() : null, active: doc.active, mustChangePassword: doc.mustChangePassword, tokenVersion: doc.tokenVersion || 0, emailVerified: doc.emailVerified };
   }
   const store = readFileStore();
   if (store.users.some((user) => user.email === wanted)) {
@@ -218,7 +218,7 @@ export async function createUser({ email, name, passwordHash, role = 'student', 
   const user = { id: newId(), email: wanted, name, passwordHash, role, planId, active, mustChangePassword, tokenVersion: 0, emailVerified, emailVerificationTokenHash, emailVerificationExpires, createdAt: nowIso() };
   store.users.push(user);
   writeFileStore();
-  return { id: user.id, email: user.email, name: user.name, role: user.role, planId: user.planId, active: user.active, mustChangePassword: user.mustChangePassword, tokenVersion: 0 };
+  return { id: user.id, email: user.email, name: user.name, role: user.role, planId: user.planId, active: user.active, mustChangePassword: user.mustChangePassword, tokenVersion: 0, emailVerified: user.emailVerified };
 }
 
 export async function findUserByEmail(email) {
@@ -233,6 +233,7 @@ export async function findUserByEmail(email) {
       role: doc.role || 'student', planId: doc.planId ? doc.planId.toString() : null,
       active: doc.active !== false, mustChangePassword: Boolean(doc.mustChangePassword),
       tokenVersion: doc.tokenVersion || 0, lastSignInAt: doc.lastSignInAt,
+      emailVerified: doc.emailVerified,
       overrides: doc.overrides || {},
       totpSecret: doc.totpSecret || null, totpEnabled: Boolean(doc.totpEnabled),
     };
@@ -243,6 +244,7 @@ export async function findUserByEmail(email) {
     id: u.id, email: u.email, name: u.name, passwordHash: u.passwordHash,
     role: u.role || 'student', planId: u.planId || null, active: u.active !== false,
     mustChangePassword: Boolean(u.mustChangePassword), tokenVersion: u.tokenVersion || 0, lastSignInAt: u.lastSignInAt,
+    emailVerified: u.emailVerified,
   };
 }
 
@@ -250,13 +252,14 @@ export async function findUserById(id) {
   await initStorage();
   if (mode === 'mongo') {
     if (!mongoose.isValidObjectId(id)) return null;
-    const doc = await User.findById(id).select('email name role planId active mustChangePassword tokenVersion lastSignInAt overrides totpEnabled').lean();
+    const doc = await User.findById(id).select('email name role planId active mustChangePassword tokenVersion lastSignInAt overrides totpEnabled emailVerified').lean();
     if (!doc) return null;
     return {
       id: doc._id.toString(), email: doc.email, name: doc.name,
       role: doc.role || 'student', planId: doc.planId ? doc.planId.toString() : null,
       active: doc.active !== false, mustChangePassword: Boolean(doc.mustChangePassword),
       tokenVersion: doc.tokenVersion || 0, lastSignInAt: doc.lastSignInAt,
+      emailVerified: doc.emailVerified,
       overrides: doc.overrides || {},
       totpEnabled: Boolean(doc.totpEnabled),
     };
@@ -268,9 +271,40 @@ export async function findUserById(id) {
     role: user.role || 'student', planId: user.planId || null,
     active: user.active !== false, mustChangePassword: Boolean(user.mustChangePassword),
     tokenVersion: user.tokenVersion || 0, lastSignInAt: user.lastSignInAt,
+    emailVerified: user.emailVerified,
     overrides: user.overrides || {},
     totpEnabled: Boolean(user.totpEnabled),
   };
+}
+
+export async function verifyEmailByTokenHash(hash) {
+  await initStorage();
+  const now = new Date();
+  if (mode === 'mongo') {
+    const user = await User.findOneAndUpdate(
+      { emailVerificationTokenHash: hash, emailVerificationExpires: { $gt: now } },
+      { $set: { emailVerified: true }, $unset: { emailVerificationTokenHash: 1, emailVerificationExpires: 1 } },
+      { new: true },
+    ).select('email name role mustChangePassword emailVerified').lean();
+    return user ? { ...user, id: String(user._id) } : null;
+  }
+
+  const store = readFileStore();
+  const index = store.users.findIndex((user) =>
+    user.emailVerificationTokenHash === hash && new Date(user.emailVerificationExpires) > now);
+  if (index === -1) return null;
+  const { emailVerificationTokenHash, emailVerificationExpires, ...user } = store.users[index];
+  const verified = { ...user, emailVerified: true };
+  const original = store.users[index];
+  store.users[index] = verified;
+  try {
+    writeFileStore();
+  } catch (error) {
+    store.users[index] = original;
+    throw error;
+  }
+  const { id, email, name, role, mustChangePassword, emailVerified } = verified;
+  return { id, email, name, role, mustChangePassword, emailVerified };
 }
 
 // ---------------------------------------------------------------- library

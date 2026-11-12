@@ -18,6 +18,24 @@ after(async () => {
   await dropTestDatabase();
 });
 
+it('reports email verification consistently and consumes a verification link once', async () => {
+  const user = await makeUser(api.base);
+  assert.equal(user.response.status, 201);
+  assert.equal(user.response.body.user.emailVerified, false);
+  const login = () => call(api.base, '/api/auth/login', { method: 'POST', body: { email: user.email, password: user.password } });
+  const session = () => call(api.base, '/api/auth/me', { token: user.token });
+  assert.equal((await login()).body.user.emailVerified, false);
+  assert.equal((await session()).body.user.emailVerified, false);
+  const token = crypto.randomBytes(32).toString('hex');
+  const digest = crypto.createHash('sha256').update(token).digest('hex');
+  await User.updateOne({ email: user.email }, { emailVerificationTokenHash: digest, emailVerificationExpires: new Date(Date.now() + 60_000) });
+  const verify = () => call(api.base, '/api/auth/verify-email?token=' + token);
+  const results = await Promise.all([verify(), verify()]);
+  assert.deepEqual(results.map(({ status }) => status).sort(), [200, 400]);
+  assert.equal((await login()).body.user.emailVerified, true);
+  assert.equal((await session()).body.user.emailVerified, true);
+});
+
 describe('password recovery', () => {
   it('returns the same response for known and unknown addresses', async () => {
     const { email } = await makeUser(api.base);

@@ -38,9 +38,11 @@ describe('file storage backend', () => {
   it('creates an account, signs in, and keeps the library', async () => {
     const user = await makeUser(api.base, { name: 'File Store User' });
     assert.equal(user.response.status, 201);
+    assert.equal(user.response.body.user.emailVerified, false);
 
     const login = await call(api.base, '/api/auth/login', { method: 'POST', body: { email: user.email, password: user.password } });
     assert.equal(login.status, 200);
+    assert.equal(login.body.user.emailVerified, false);
     const token = login.body.token;
 
     const exam = { title: 'Stored exam', questions: [{ type: 'mcq', marks: 5, prompt: 'p', items: [] }] };
@@ -54,6 +56,23 @@ describe('file storage backend', () => {
     const one = await call(api.base, `/api/library/${list.body[0].id}`, { token });
     assert.equal(one.status, 200);
     assert.equal(one.body.data.title, 'Stored exam');
+  });
+
+  it('verifies a seeded email link in file mode and rejects reuse', async () => {
+    const { createUser } = await import('../lib/repository.js');
+    const { hashPassword } = await import('../lib/auth.js');
+    const token = crypto.randomBytes(32).toString('hex');
+    const user = await createUser({ email: 'verify-file@example.com', name: 'File Verification',
+      passwordHash: await hashPassword('Str0ngPass'), emailVerified: false,
+      emailVerificationTokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+      emailVerificationExpires: new Date(Date.now() + 60_000) });
+    const verify = () => call(api.base, '/api/auth/verify-email?token=' + token);
+    const verified = await verify();
+    assert.equal(verified.status, 200);
+    assert.equal(verified.body.user.emailVerified, true);
+    assert.equal((await verify()).status, 400);
+    const { users } = JSON.parse(readFileSync(dataFile, 'utf8'));
+    assert.equal(users.find(({ id }) => id === user.id).emailVerified, true);
   });
 
   it('writes a real file, hashed passwords only', async () => {
